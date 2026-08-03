@@ -30,8 +30,9 @@ const state = (
   color: string,
   background: string,
   urgent = false,
-  stale = false
-): DisplayState => ({ label, glyph, color, background, urgent, stale });
+  stale = false,
+  solid = false
+): DisplayState => ({ label, glyph, color, background, urgent, stale, solid });
 
 export function deriveDisplayState(
   project: ProjectState | undefined,
@@ -50,17 +51,17 @@ export function deriveDisplayState(
   const stale = freshnessFor(project.recencyAt, freshMinutes, staleMinutes, now) === "stale";
   switch (project.phase) {
     case "needs_approval":
-      return state("APPROVAL", "!", "#FDE68A", "#3B2A0B", true, stale);
+      return state("APPROVAL", "!", "#2A1902", "#F59E0B", true, stale, true);
     case "needs_input":
-      return state("INPUT", "?", "#FDE68A", "#33270B", true, stale);
+      return state("INPUT", "?", "#2A2302", "#FDE047", true, stale, true);
     case "failed":
-      return state("FAILED", "×", "#FDA4AF", "#3B1119", true, stale);
+      return state("FAILED", "×", "#FFF1F2", "#DC2626", true, stale, true);
     case "working":
       return project.stale
         ? state("ACTIVE?", "▶", "#7BA3CF", "#111D2C", false, true)
         : state("WORKING", "▶", "#93C5FD", "#102A43", false, stale);
     case "done":
-      return state("DONE", "✓", "#86EFAC", "#12301E", false, stale);
+      return state("DONE", "✓", "#052E16", "#22C55E", false, stale, true);
     case "idle":
       return state("IDLE", "·", "#D1D5DB", "#24272D", false, stale);
   }

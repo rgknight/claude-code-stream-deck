@@ -31,10 +31,14 @@ export interface ProjectState {
 export interface DisplayState {
   label: string;
   glyph: string;
+  /** Accent color: icon, label, and text ink. On solid keys this is a dark ink. */
   color: string;
+  /** Key background. On solid keys this is a bright, saturated fill. */
   background: string;
   urgent: boolean;
   stale: boolean;
+  /** Fill the whole key with `background` instead of a dark card with accents. */
+  solid: boolean;
 }
 
 export interface CacheFile {

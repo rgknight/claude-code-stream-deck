@@ -76,6 +76,17 @@ describe("key renderer", () => {
     expect(svg).toContain("EMPTY SLOT");
   });
 
+  it("fills the whole key with the state color for loud states", () => {
+    const base = { bridge: "running" as const, hooks: "installed" as const, freshMinutes: 15, staleMinutes: 120, now: NOW };
+    const done = renderProjectSvg({ ...base, project: project({ phase: "done", attentionCount: 0 }) });
+    expect(done).toContain('fill="#22C55E"');
+    expect(done).not.toContain('fill="url(#bg)"');
+    const approval = renderProjectSvg({ ...base, project: project({ phase: "needs_approval" }) });
+    expect(approval).toContain('fill="#F59E0B"');
+    const working = renderProjectSvg({ ...base, project: project({ phase: "working", attentionCount: 0 }) });
+    expect(working).toContain('fill="url(#bg)"');
+  });
+
   it("shows an attention badge only when more than one session is waiting", () => {
     const single = renderProjectSvg({
       bridge: "running",

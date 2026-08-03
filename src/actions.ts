@@ -178,23 +178,27 @@ export class HealthAction extends SingletonAction<JsonObject> {
     let icon: "health" | "warning" = "health";
     let color = "#86EFAC";
     let background = "#0A281B";
+    let solid = false;
     if (!bridgeOk) {
       label = "Bridge";
       icon = "warning";
-      color = "#FBBF24";
-      background = "#33270B";
+      color = "#2A1902";
+      background = "#F59E0B";
+      solid = true;
     } else if (!hooksOk) {
       label = "Setup";
       icon = "warning";
-      color = "#FBBF24";
-      background = "#33270B";
+      color = "#2A1902";
+      background = "#F59E0B";
+      solid = true;
     } else if (waiting > 0) {
       label = `+${waiting} waiting`;
       icon = "warning";
-      color = "#FDE68A";
-      background = "#3B2A0B";
+      color = "#2A2302";
+      background = "#FDE047";
+      solid = true;
     }
-    await key.setImage(svgDataUrl(renderUtilitySvg(label, icon, color, background)));
+    await key.setImage(svgDataUrl(renderUtilitySvg(label, icon, color, background, solid)));
     await key.setTitle(undefined);
   }
 }

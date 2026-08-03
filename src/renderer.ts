@@ -86,8 +86,14 @@ export function renderProjectSvg(options: RenderOptions): string {
     ? `<path d="M116 5h22v22z" fill="${display.color}"/><circle cx="128" cy="15" r="3" fill="#080B12"/>`
     : "";
   const attentionBadge = count
-    ? `<circle cx="120" cy="27" r="14" fill="#F43F5E"/><text x="120" y="32" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="800" fill="#FFFFFF">${count}</text>`
+    ? `<circle cx="120" cy="27" r="14" fill="#F43F5E" stroke="#FFFFFF" stroke-width="2"/><text x="120" y="32" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="800" fill="#FFFFFF">${count}</text>`
     : "";
+  // Solid states fill the whole key with a bright color so they read at a
+  // glance on small decks; text and accents switch to the dark ink color.
+  const bodyFill = display.solid ? display.background : "url(#bg)";
+  const nameFill = display.solid ? display.color : "#FFFFFF";
+  const footerFill = display.solid ? display.color : "#E7ECF4";
+  const pillOpacity = display.solid ? ".14" : ".11";
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
   <defs>
@@ -98,15 +104,15 @@ export function renderProjectSvg(options: RenderOptions): string {
     </linearGradient>
   </defs>
   <rect width="144" height="144" rx="19" fill="#05070B"/>
-  <rect x="3" y="3" width="138" height="138" rx="17" fill="url(#bg)" stroke="${display.color}" stroke-opacity=".34" stroke-width="2"/>
-  <rect x="8" y="11" width="96" height="32" rx="16" fill="${display.color}" opacity=".11"/>
+  <rect x="3" y="3" width="138" height="138" rx="17" fill="${bodyFill}" stroke="${display.color}" stroke-opacity=".34" stroke-width="2"/>
+  <rect x="8" y="11" width="96" height="32" rx="16" fill="${display.color}" opacity="${pillOpacity}"/>
   ${statusIcon(display.label, display.color)}
   <text x="48" y="32" font-family="Arial, sans-serif" font-size="11" font-weight="800" letter-spacing=".6" fill="${display.color}">${escapeXml(display.label.slice(0, 10))}</text>
   ${pin}
   ${attentionBadge}
-  <text x="72" y="78" text-anchor="middle" font-family="Arial, sans-serif" font-size="15.5" font-weight="700" fill="#FFFFFF">${escapeXml(line1)}</text>
-  <text x="72" y="99" text-anchor="middle" font-family="Arial, sans-serif" font-size="15.5" font-weight="700" fill="#FFFFFF">${escapeXml(line2)}</text>
-  <text x="72" y="126" text-anchor="middle" font-family="Arial, sans-serif" font-size="${footer.length > 14 ? "11.5" : "13"}" font-weight="800" letter-spacing=".35" fill="#E7ECF4">${escapeXml(footer)}</text>
+  <text x="72" y="78" text-anchor="middle" font-family="Arial, sans-serif" font-size="15.5" font-weight="700" fill="${nameFill}">${escapeXml(line1)}</text>
+  <text x="72" y="99" text-anchor="middle" font-family="Arial, sans-serif" font-size="15.5" font-weight="700" fill="${nameFill}">${escapeXml(line2)}</text>
+  <text x="72" y="126" text-anchor="middle" font-family="Arial, sans-serif" font-size="${footer.length > 14 ? "11.5" : "13"}" font-weight="800" letter-spacing=".35" fill="${footerFill}">${escapeXml(footer)}</text>
   <rect x="5" y="135" width="134" height="4" rx="2" fill="${display.color}"/>
 </svg>`;
 }
@@ -115,9 +121,12 @@ export function renderUtilitySvg(
   label: string,
   icon: UtilityIcon,
   color = "#67E8F9",
-  background = "#0B1D2A"
+  background = "#0B1D2A",
+  solid = false
 ): string {
   const safeLabel = label.toUpperCase().slice(0, 12);
+  const bodyFill = solid ? background : "url(#utility-bg)";
+  const labelFill = solid ? color : "#FFFFFF";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
   <defs>
     <linearGradient id="utility-bg" x1="0" y1="0" x2="1" y2="1">
@@ -127,10 +136,10 @@ export function renderUtilitySvg(
     </linearGradient>
   </defs>
   <rect width="144" height="144" rx="19" fill="#05070B"/>
-  <rect x="3" y="3" width="138" height="138" rx="17" fill="url(#utility-bg)" stroke="${color}" stroke-opacity=".35" stroke-width="2"/>
-  <rect x="20" y="15" width="104" height="84" rx="23" fill="${color}" opacity=".08"/>
+  <rect x="3" y="3" width="138" height="138" rx="17" fill="${bodyFill}" stroke="${color}" stroke-opacity=".35" stroke-width="2"/>
+  <rect x="20" y="15" width="104" height="84" rx="23" fill="${color}" opacity="${solid ? ".12" : ".08"}"/>
   ${utilityIconSvg(icon, color)}
-  <text x="72" y="122" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="800" letter-spacing=".7" fill="#FFFFFF">${escapeXml(safeLabel)}</text>
+  <text x="72" y="122" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="800" letter-spacing=".7" fill="${labelFill}">${escapeXml(safeLabel)}</text>
   <rect x="39" y="134" width="66" height="4" rx="2" fill="${color}"/>
 </svg>`;
 }

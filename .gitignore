@@ -8,7 +8,7 @@ coverage/
 __pycache__/
 *.py[cod]
 *.streamDeckPlugin
-com.codexstreamdeck.control.sdPlugin/bin/
-com.codexstreamdeck.control.sdPlugin/logs/
+com.claudecode.monitor.sdPlugin/bin/
+com.claudecode.monitor.sdPlugin/logs/
 .DS_Store
 Thumbs.db

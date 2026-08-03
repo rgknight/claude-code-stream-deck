@@ -1,17 +1,7 @@
-import type { ConnectionState, ProjectState } from "./domain.js";
+import type { BridgeState, HooksStatus, ProjectState } from "./domain.js";
 import { deriveDisplayState, formatAge } from "./status.js";
 
-export type UtilityIcon =
-  | "refresh"
-  | "new"
-  | "editor"
-  | "review"
-  | "interrupt"
-  | "health"
-  | "settings"
-  | "skills"
-  | "hold"
-  | "warning";
+export type UtilityIcon = "health" | "warning" | "hold";
 
 export function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => {
@@ -32,13 +22,14 @@ export function splitProjectName(name: string, width = 15): [string, string] {
   const firstEnd = breakAt >= 4 ? breakAt : width;
   const first = clean.slice(0, firstEnd).trim();
   const rest = clean.slice(firstEnd).replace(/^[-_\s]+/, "");
-  const second = rest.length > width ? `${rest.slice(0, width - 1)}\u2026` : rest;
+  const second = rest.length > width ? `${rest.slice(0, width - 1)}…` : rest;
   return [first, second];
 }
 
 export interface RenderOptions {
   project?: ProjectState | undefined;
-  connection: ConnectionState;
+  bridge: BridgeState;
+  hooks: HooksStatus;
   freshMinutes: number;
   staleMinutes: number;
   pinned?: boolean;
@@ -53,27 +44,18 @@ function statusIcon(label: string, color: string): string {
   switch (label) {
     case "DONE":
       return `<path d="m20 27 6 6 12-14" ${stroke}/>`;
-    case "RUNNING":
     case "WORKING":
     case "ACTIVE?":
       return `<path d="m23 18 16 9-16 9z" fill="${color}"/>`;
-    case "REVIEW":
-      return `<path d="M17 27s5-8 12-8 12 8 12 8-5 8-12 8-12-8-12-8Z" ${stroke}/><circle cx="29" cy="27" r="3" fill="${color}"/>`;
     case "FAILED":
-    case "ERROR":
-    case "INCOMPAT":
-    case "BLOCKED":
+    case "BRIDGE":
       return `<path d="m20 19 18 17m0-17L20 36" ${stroke}/>`;
-    case "PAUSED":
-      return `<path d="M23 19v16m12-16v16" ${stroke}/>`;
     case "APPROVAL":
     case "INPUT":
-    case "IN CODEX":
     case "SETUP":
-    case "AUTH":
       return `<path d="M29 18v12" ${stroke}/><circle cx="29" cy="36" r="2.5" fill="${color}"/>`;
-    case "OFFLINE":
-      return `<path d="M18 25c6-6 16-6 22 0M22 30c4-4 10-4 14 0M29 36h.1M18 18l22 20" ${stroke}/>`;
+    case "IDLE":
+      return `<path d="M23 19v16m12-16v16" ${stroke}/>`;
     default:
       return `<circle cx="29" cy="27" r="9" ${stroke}/><circle cx="29" cy="27" r="2.5" fill="${color}"/>`;
   }
@@ -82,22 +64,8 @@ function statusIcon(label: string, color: string): string {
 function utilityIconSvg(icon: UtilityIcon, color: string): string {
   const stroke = `fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"`;
   switch (icon) {
-    case "refresh":
-      return `<path d="M91 43a29 29 0 1 0 5 26" ${stroke}/><path d="M91 27v18H73" ${stroke}/>`;
-    case "new":
-      return `<path d="M72 31v52M46 57h52" ${stroke}/>`;
-    case "editor":
-      return `<path d="m55 38-19 19 19 19m34-38 19 19-19 19M81 31 63 83" ${stroke}/>`;
-    case "review":
-      return `<path d="M30 57s15-22 42-22 42 22 42 22-15 22-42 22S30 57 30 57Z" ${stroke}/><circle cx="72" cy="57" r="10" ${stroke}/>`;
-    case "interrupt":
-      return `<rect x="47" y="32" width="50" height="50" rx="9" fill="${color}"/><path d="M39 25h15M32 32v15m73-22H90m22 7v15M39 89h15m-22-7V67m73 22H90m22-7V67" ${stroke}/>`;
     case "health":
       return `<circle cx="72" cy="57" r="31" ${stroke}/><path d="m53 58 13 13 27-29" ${stroke}/>`;
-    case "settings":
-      return `<circle cx="72" cy="57" r="14" ${stroke}/><path d="M72 23v10m0 48v10M38 57h10m48 0h10M48 33l7 7m34 34 7 7m0-48-7 7M55 74l-7 7" ${stroke}/>`;
-    case "skills":
-      return `<path d="m72 23 9 22 22 9-22 9-9 22-9-22-22-9 22-9z" ${stroke}/>`;
     case "hold":
       return `<circle cx="72" cy="57" r="34" ${stroke}/><rect x="57" y="42" width="30" height="30" rx="5" fill="${color}"/>`;
     case "warning":
@@ -107,19 +75,13 @@ function utilityIconSvg(icon: UtilityIcon, color: string): string {
 
 export function renderProjectSvg(options: RenderOptions): string {
   const now = options.now ?? Date.now();
-  const display = deriveDisplayState(options.project, options.connection, options.freshMinutes, options.staleMinutes, now);
-  const projectName = options.displayNameOverride || options.project?.displayName || "Codex";
+  const display = deriveDisplayState(options.project, options.bridge, options.hooks, options.freshMinutes, options.staleMinutes, now);
+  const projectName = options.displayNameOverride || options.project?.displayName || "Claude";
   const [line1, line2] = splitProjectName(projectName);
   const attention = options.project?.attentionCount ?? 0;
-  const count = options.showAttentionCount !== false && attention > 0 ? String(Math.min(99, attention)) : "";
-  const age = options.showFreshness === false ? "" : formatAge(options.project?.report?.observedAt, now);
-  const footer = !options.project
-    ? "EMPTY SLOT"
-    : !age
-      ? ""
-      : age === "stale"
-        ? "HOLD TO CHECK"
-        : `UPDATED ${age.toUpperCase()}`;
+  const count = options.showAttentionCount !== false && attention > 1 ? String(Math.min(99, attention)) : "";
+  const age = options.showFreshness === false ? "" : formatAge(options.project?.recencyAt, now);
+  const footer = !options.project ? "EMPTY SLOT" : age ? `UPDATED ${age.toUpperCase()}` : "";
   const pin = options.pinned
     ? `<path d="M116 5h22v22z" fill="${display.color}"/><circle cx="128" cy="15" r="3" fill="#080B12"/>`
     : "";

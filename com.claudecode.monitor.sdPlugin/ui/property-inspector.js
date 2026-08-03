@@ -6,13 +6,7 @@ let actionSettings = {};
 let globalSettings = {};
 let saveTimer;
 
-const projectAction = "com.codexstreamdeck.control.project-slot";
-const targetActions = new Set([
-  "com.codexstreamdeck.control.new-task",
-  "com.codexstreamdeck.control.open-editor",
-  "com.codexstreamdeck.control.review",
-  "com.codexstreamdeck.control.interrupt"
-]);
+const sessionAction = "com.claudecode.monitor.session-slot";
 
 window.connectElgatoStreamDeckSocket = function (port, propertyInspectorUuid, registerEvent, info, rawActionInfo) {
   const parsedPort = Number(port);
@@ -71,9 +65,7 @@ function receive(message) {
 }
 
 function showRelevantSections() {
-  document.getElementById("project-settings").hidden = actionUuid !== projectAction;
-  document.getElementById("target-settings").hidden = !targetActions.has(actionUuid);
-  document.getElementById("new-task-settings").hidden = actionUuid !== "com.codexstreamdeck.control.new-task";
+  document.getElementById("project-settings").hidden = actionUuid !== sessionAction;
 }
 
 function renderSettings() {
@@ -119,17 +111,22 @@ document.addEventListener("click", (event) => {
 });
 
 function renderState(state) {
-  const connection = state.connection || "unknown";
-  document.getElementById("connection").textContent = connection.replaceAll("_", " ").toUpperCase();
-  document.getElementById("connection-dot").className = `dot ${connection}`;
-  document.getElementById("codex-version").textContent = state.codexVersion || "Unknown";
+  const bridgeOk = state.bridge === "running";
+  const hooksOk = state.hooks === "installed";
+  const label = !bridgeOk ? "BRIDGE " + String(state.bridge || "unknown").toUpperCase()
+    : !hooksOk ? "HOOKS " + String(state.hooks || "unknown").toUpperCase()
+    : "CONNECTED";
+  document.getElementById("connection").textContent = label;
+  document.getElementById("connection-dot").className = `dot ${bridgeOk && hooksOk ? "connected" : "setup"}`;
+  document.getElementById("hooks-state").textContent = state.hooks || "Unknown";
   document.getElementById("project-count").textContent = String(state.projectCount ?? 0);
+  document.getElementById("session-count").textContent = String(state.sessionCount ?? 0);
   document.getElementById("bridge-state").textContent = state.bridgeRunning
-    ? `Running · ${state.bridgeAccepted || 0} received`
+    ? `Running · ${state.bridgeAccepted || 0} received · ${state.bridgeSpooled || 0} spooled`
     : "Stopped";
   const summary = state.project
-    ? `${state.project.name} · ${state.project.workflow} · ${state.project.runtime}`
-    : `${state.projectCount || 0} recent projects`;
+    ? `${state.project.name} · ${state.project.phase} · ${state.project.sessionCount} session(s)`
+    : `${state.projectCount || 0} active projects · ${state.sessionCount || 0} sessions`;
   document.getElementById("project-summary").textContent = summary;
   const error = document.getElementById("last-error");
   error.textContent = state.lastError || "";

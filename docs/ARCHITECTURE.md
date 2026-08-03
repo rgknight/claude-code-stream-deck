@@ -7,92 +7,66 @@ flowchart LR
     K["Stream Deck keys"] --> A["Plugin actions"]
     PI["Property Inspector"] --> A
     A --> C["Coordinator"]
-    C --> S["Codex app-server over stdio JSONL"]
     C --> R["Renderer"]
     C --> L["Atomic local cache"]
-    N["Codex notify helper"] --> B["127.0.0.1 token bridge"]
+    H["Claude Code hooks"] --> P["Python helper"]
+    P --> B["127.0.0.1 token bridge"]
     B --> C
-    N --> Q["Bounded local spool"]
+    P --> Q["Bounded local spool"]
     Q --> C
 ```
 
-The plugin process is the only long-running component. It starts one Codex app-server child process over the default stdio transport, initializes the JSON-RPC connection, polls task metadata, and reacts to app-server notifications.
+The plugin process is the only long-running component. There is no polling and no control connection to Claude Code: every state change is pushed by a hook. The only timer is a 60-second garbage-collection tick that expires sessions that died without a `SessionEnd` (crash, kill) and flags stalled work.
 
-## Data model
+## Event pipeline
 
-Codex tasks are grouped by canonical project identity:
+Seven Claude Code hook events are installed (`SessionStart`, `UserPromptSubmit`, `Notification`, `PostToolUse`, `Stop`, `StopFailure`, `SessionEnd`). The helper reads the hook payload from stdin, keeps only metadata (session ID, cwd, event type, notification type, bounded message), stamps it, and POSTs it to the bridge with a 0.75 s timeout. On failure it spools the event atomically to a local directory — except `post-tool` events, which are high-volume and worthless when stale. The helper always exits 0 so hooks never slow a session down.
 
-1. Resolve the task working directory.
-2. If it belongs to Git, use the repository top level.
-3. When worktree grouping is enabled, use the Git common directory as the identity anchor.
-4. Hash the normalized identity anchor for the local project ID.
-5. Choose a primary task by pin, approval need, plugin-owned activity, workflow attention, then recency.
+The bridge validates every request: POST to `/event` only, bearer token, `application/json`, loopback remote address, 256 KiB body cap, and a strict allow-list reconstruction of the event (`version === 2`, known type, ID grammar, absolute NUL-free cwd). The spool drain applies the same validation and caps at 500 files per pass.
 
-The visible name is the primary Codex task title, falling back to a bounded preview and finally the project directory name.
+## Session state machine
 
-## State separation
+`src/session-model.ts` is a pure module (fully unit-tested) that folds events into per-session phases:
 
-Runtime state and workflow state are deliberately separate:
+| Event | Transition |
+| --- | --- |
+| `session-start` | new session → `idle`; `clear`/`startup` resets, `compact`/`resume` keeps the current phase |
+| `prompt-submit` | → `working` |
+| `notification` | `permission_prompt` → `needs_approval`; passive types (e.g. `auth_success`) no change; everything else → `needs_input` |
+| `post-tool` | `needs_approval`/`needs_input`/`idle` → `working` (proof the request was resolved) |
+| `stop` | → `done` |
+| `stop-failure` | → `failed` |
+| `session-end` | session removed, key freed |
 
-- Runtime: not loaded, idle, active, system error, or unknown
-- Workflow: working, needs input, blocked, ready for review, done, paused, failed, or unknown
-- Freshness: fresh, aging, or stale
+Any event for an unknown session upserts it first, so a plugin restart mid-session recovers. GC marks `working` sessions with no events for `staleWorkingMinutes` as `ACTIVE?` and deletes sessions silent for `sessionTtlHours`.
 
-An idle runtime never implies completed work. `DONE` requires a schema-valid workflow report.
+## Project grouping
 
-## Project-key interaction
+Sessions are grouped by canonical Git identity: resolve the session cwd, use the repository top level, and (when worktree grouping is on) anchor on the Git common directory; the SHA-256 of the anchor is the project ID. Each project's primary session is chosen by urgency (`needs_approval` > `needs_input` > `failed` > `working` > `done` > `idle`), tie-broken by recency.
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant K as Project key
-    participant C as Coordinator
-    participant S as Codex app-server
+## Sticky slot assignment
 
-    U->>K: Quick tap
-    K->>C: Open selected task
-    C-->>U: codex://threads/task-id
+Keys map to projects through a persisted slot map (`cache.slots`), not a sorted list:
 
-    U->>K: Hold at least 650 ms
-    K->>C: Request status
-    C->>S: Resume task, start read-only turn
-    S-->>C: Structured status result
-    C->>C: Validate schema and update cache
-    C-->>K: Render state and age
-```
+1. A project keeps its slot while it stays underway.
+2. A slot is freed when its project's sessions all end or expire.
+3. New projects claim the lowest free slot below `autoSlotCount`.
+4. When all slots are full, only a project that needs attention may evict — and only an `idle` or `done` project, never working or attention-needing ones. Overflow is surfaced on the Health key instead.
 
-## App-server boundary
-
-- Transport: child-process stdio with newline-delimited JSON
-- Initialization: `initialize`, then `initialized`
-- Maximum incomplete JSONL frame: 5 MiB
-- Request timeouts and pending-request cleanup
-- Runtime validation of message envelopes and IDs
-- Automatic rejection of approvals, permissions, elicitation, and user-input requests
-- Unknown server-initiated requests receive a JSON-RPC error
-
-Status turns use read-only sandbox policy, no tool network access, and approval policy `never`. New plugin-owned tasks use a workspace-write sandbox limited to the selected project root and no tool network access.
-
-## Notify boundary
-
-Passive notifications are optional.
-
-- Python helper receives the Codex notifier JSON argument.
-- It minimizes and byte-bounds the payload.
-- It reads a short-lived endpoint file from the local app-data directory.
-- It POSTs JSON to a random loopback port with a 256-bit bearer token.
-- The server checks loopback origin, exact path/method, content type, token, event version/type, IDs, absolute working directory, and size.
-- If the server is unavailable, the helper writes an atomic, user-local spool file.
-- The plugin rejects symlink spool entries and processes at most 500 per drain.
-
-## Persistence
-
-The cache uses a schema version, a 10 MiB limit, an exclusive temporary file, `fsync`, atomic rename, and a last-known-good copy. Logs rotate at 1 MiB and redact common API-key, bearer-token, and query-secret patterns.
+Urgency changes color, never key position: a key is a muscle-memory pointer to a workspace. Keys can also be pinned to a project root (hold gesture or Property Inspector), which overrides the map.
 
 ## Rendering
 
-Key images are generated as SVG and sent as encoded data URLs. Every user- or task-derived string is stripped of XML control characters and XML-escaped. Colors, geometry, and status icons come only from internal constants.
+Key images are generated as SVG and sent as encoded data URLs. Every user-derived string is stripped of control characters and XML-escaped. Renders are debounced (100 ms) and deduplicated. The display ladder puts setup problems first: hooks missing → `SETUP`, bridge down → `BRIDGE`, then the session phase.
 
-## Deep links and process launches
+## Hooks installer
 
-Codex URLs are parsed and allow-listed by protocol, host, route, and task-ID grammar. Editor and OS launches use `spawn` or `execFile` with argument arrays and `shell: false`. User-configured executable paths are trusted local configuration and are never accepted from task output.
+The Property Inspector's **Install hooks** button merges command entries into `~/.claude/settings.json`. The merge is idempotent and non-destructive: it recognizes its own entries by the helper filename, updates them in place, preserves all user hooks and unrelated keys, refuses to touch a file it cannot parse, backs up first, and writes atomically. Uninstall removes only our entries and prunes empty groups.
+
+## Persistence
+
+The cache (schema v2: sessions, derived projects, slot map) uses a 10 MiB limit, an exclusive temporary file, `fsync`, atomic rename, and a last-known-good copy. It persists on phase changes and membership changes, not on every activity bump. Logs rotate at 1 MiB and redact common API-key, bearer-token, and query-secret patterns.
+
+## Process launches
+
+Editor and OS launches use `spawn` with argument arrays and `shell: false`. The tap gesture launches the configured editor (default `code`) against the primary session's real cwd, which focuses the existing VS Code window for that folder and lets macOS switch Spaces.

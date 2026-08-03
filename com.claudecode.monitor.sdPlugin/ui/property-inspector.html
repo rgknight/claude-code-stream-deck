@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src ws://127.0.0.1:*; img-src 'self' data:" />
+    <title>Claude Code Monitor</title>
+    <link rel="stylesheet" href="property-inspector.css" />
+  </head>
+  <body>
+    <main>
+      <section class="status-card">
+        <div><span id="connection-dot" class="dot"></span><strong id="connection">Starting</strong></div>
+        <div id="project-summary" class="muted">Waiting for session state…</div>
+        <div id="last-error" class="error" hidden></div>
+      </section>
+
+      <section id="project-settings" hidden>
+        <h2>Session key</h2>
+        <label>Mode<select data-scope="action" data-key="slotMode"><option value="auto">Automatic</option><option value="pinned">Pinned</option></select></label>
+        <label>Automatic position<input data-scope="action" data-key="slotIndex" data-type="number" type="number" min="0" max="31" value="0" /></label>
+        <label>Project root to pin<input data-scope="action" data-key="pinnedProjectRoot" type="text" placeholder="/path/to/project" /></label>
+        <label>Display name<input data-scope="action" data-key="displayNameOverride" type="text" maxlength="48" /></label>
+        <label class="check"><input data-scope="action" data-key="showFreshness" data-type="boolean" type="checkbox" checked /> Show freshness</label>
+        <label class="check"><input data-scope="action" data-key="showAttentionCount" data-type="boolean" type="checkbox" checked /> Show attention count</label>
+        <p class="hint">Tap focuses the session’s editor window. Hold to pin the current project to this key, or to clear a DONE / FAILED state.</p>
+      </section>
+
+      <section>
+        <h2>Claude Code hooks</h2>
+        <p class="hint">Session state comes from Claude Code hooks that post to a local, token-protected loopback bridge. Install adds entries to ~/.claude/settings.json (a timestamped backup is written first); running sessions pick them up automatically.</p>
+        <div class="buttons"><button data-op="installNotify">Install hooks</button><button data-op="checkHooks" class="secondary">Check hooks</button><button data-op="uninstallNotify" class="secondary">Remove hooks</button></div>
+      </section>
+
+      <section>
+        <h2>Global setup</h2>
+        <label>Editor executable<input data-scope="global" data-key="editorCommand" type="text" value="code" /></label>
+        <label>Editor arguments<input data-scope="global" data-key="editorArgs" data-type="list" type="text" placeholder="(none)" /></label>
+        <button data-op="testEditor" class="secondary">Test editor</button>
+        <label>Session keys<input data-scope="global" data-key="autoSlotCount" data-type="number" type="number" min="1" max="32" value="4" /></label>
+        <label>Fresh for (minutes)<input data-scope="global" data-key="freshMinutes" data-type="number" type="number" min="1" value="15" /></label>
+        <label>Stale after (minutes)<input data-scope="global" data-key="staleMinutes" data-type="number" type="number" min="2" value="120" /></label>
+        <label>Hold duration (ms)<input data-scope="global" data-key="holdMilliseconds" data-type="number" type="number" min="300" max="3000" value="650" /></label>
+        <label>Stalled after (minutes)<input data-scope="global" data-key="staleWorkingMinutes" data-type="number" type="number" min="5" max="1440" value="120" /></label>
+        <label>Session TTL (hours)<input data-scope="global" data-key="sessionTtlHours" data-type="number" type="number" min="1" max="168" value="24" /></label>
+        <label>Recent horizon (days)<input data-scope="global" data-key="recentHorizonDays" data-type="number" type="number" min="1" value="14" /></label>
+        <label class="check"><input data-scope="global" data-key="groupWorktrees" data-type="boolean" type="checkbox" checked /> Group Git worktrees</label>
+        <label class="check"><input data-scope="global" data-key="notifyBridgeEnabled" data-type="boolean" type="checkbox" checked /> Run notify bridge</label>
+      </section>
+
+      <section>
+        <h2>Diagnostics</h2>
+        <dl><dt>Hooks</dt><dd id="hooks-state">Unknown</dd><dt>Projects</dt><dd id="project-count">0</dd><dt>Sessions</dt><dd id="session-count">0</dd><dt>Bridge</dt><dd id="bridge-state">Stopped</dd></dl>
+        <div class="buttons"><button data-op="openDiagnostics" class="secondary">Diagnostics folder</button></div>
+      </section>
+      <output id="result" aria-live="polite"></output>
+    </main>
+    <script src="property-inspector.js"></script>
+  </body>
+</html>

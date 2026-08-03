@@ -2,13 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## 0.2.0 — 2026-08-03
+
+- Hard fork: the plugin now monitors **Claude Code** sessions instead of Codex tasks (new UUID namespace `com.claudecode.monitor`; existing profiles must be rebuilt).
+- Session state is pushed by Claude Code hooks through the loopback notify bridge — the Codex app-server client, polling, and status turns are removed entirely.
+- New session state machine: `APPROVAL`, `INPUT`, `WORKING`, `ACTIVE?` (stalled), `DONE`, `FAILED`, `IDLE`, driven by exact `notification_type` classification.
+- Sticky key assignment: projects keep their key while alive; attention changes color, never position; idle/done projects can be evicted only by attention-needing overflow.
+- Tap focuses the session's editor window (VS Code window/Space aware); hold pins the project or acknowledges a finished state.
+- One-click hooks installer that non-destructively merges into `~/.claude/settings.json` with backup, idempotency, and uninstall.
+- Privacy: events carry session metadata only; prompt text, responses, and transcript paths never leave the hook payload.
+- Reduced to two actions (Claude Session, Monitor Health) sized for small decks; dropped `ajv` and all Codex dependencies.
+
 ## 0.1.0 — 2026-07-15
 
-- Initial public release of Codex Control for Stream Deck.
-- Added recent-task buttons with meaningful Codex task titles, workflow states, freshness, and attention indicators.
-- Added exact-task opening, safe status checks, refresh, task creation, editor, review, interrupt, health, settings, and skills actions.
-- Added optional loopback-only, token-authenticated passive notify bridge with atomic spool fallback.
-- Added strict status schema, bounded local cache, secret-redacted logs, and defensive approval rejection.
-- Added security hardening for app-server messages, persisted settings, notify events, Python helpers, Property Inspector CSP, and release privacy.
-- Added setup, architecture, development, security, and release documentation.
-- Adopted the MIT license and neutral, non-identifying release metadata.
+- Initial public release of Codex Control for Stream Deck (upstream baseline before the fork).

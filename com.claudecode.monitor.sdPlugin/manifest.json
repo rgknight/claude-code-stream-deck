@@ -1,0 +1,64 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "Actions": [
+    {
+      "Name": "Claude Session",
+      "UUID": "com.claudecode.monitor.session-slot",
+      "Icon": "imgs/action-project",
+      "Tooltip": "Lights up when a Claude Code session needs input or approval. Tap to focus its editor window; hold to pin or clear a finished state.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "SupportedInMultiActions": false,
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/key"
+        }
+      ]
+    },
+    {
+      "Name": "Monitor Health",
+      "UUID": "com.claudecode.monitor.health",
+      "Icon": "imgs/action-health",
+      "Tooltip": "Show bridge and hooks health; press to drain queued events and re-render.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "SupportedInMultiActions": false,
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/key"
+        }
+      ]
+    }
+  ],
+  "Author": "Claude Code Monitor Contributors",
+  "Category": "Claude Code Monitor",
+  "CategoryIcon": "imgs/category",
+  "CodePath": "bin/plugin.js",
+  "Description": "Monitor local Claude Code sessions on Stream Deck keys. Keys light up when a session is waiting on your input or a permission approval.",
+  "Icon": "imgs/plugin",
+  "Name": "Claude Code Monitor",
+  "Nodejs": {
+    "Version": "24"
+  },
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "13"
+    },
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
+  ],
+  "PropertyInspectorPath": "ui/property-inspector.html",
+  "SDKVersion": 3,
+  "Software": {
+    "MinimumVersion": "7.1"
+  },
+  "UUID": "com.claudecode.monitor",
+  "Version": "0.2.0.0"
+}

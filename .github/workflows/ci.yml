@@ -44,8 +44,8 @@ jobs:
       - name: Validate Stream Deck package
         run: npm run validate:ci
 
-      - name: Check Python helpers
-        run: python3 -m py_compile com.codexstreamdeck.control.sdPlugin/helpers/codex_streamdeck_notify.py com.codexstreamdeck.control.sdPlugin/helpers/codex_streamdeck_notify_chain.py
+      - name: Check Python helper
+        run: python3 -m py_compile com.claudecode.monitor.sdPlugin/helpers/claude_streamdeck_notify.py
 
       - name: Check release privacy
         run: npm run privacy

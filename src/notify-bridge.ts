@@ -1,28 +1,43 @@
-import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { copyFile, lstat, mkdir, open, readFile, readdir, rename, unlink, writeFile, type FileHandle } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, rename, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import http from "node:http";
-import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
 import type { DiagnosticLogger } from "./logger.js";
-import { codexHome } from "./paths.js";
+import { spoolDirectory } from "./paths.js";
 
-const execFileAsync = promisify(execFile);
 const MAX_EVENT_BYTES = 256 * 1024;
-const MAX_MESSAGE_BYTES = 192 * 1024;
-const NOTIFY_EVENT_TYPES = new Set(["agent-turn-complete", "approval-requested"]);
+const MAX_MESSAGE_BYTES = 1024;
+const NOTIFY_EVENT_TYPES = new Set([
+  "session-start",
+  "prompt-submit",
+  "notification",
+  "post-tool",
+  "stop",
+  "stop-failure",
+  "session-end"
+]);
 const EVENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,200}$/;
 
+export type NotifyEventType =
+  | "session-start"
+  | "prompt-submit"
+  | "notification"
+  | "post-tool"
+  | "stop"
+  | "stop-failure"
+  | "session-end";
+
 export interface NotifyEvent {
-  version: 1;
-  type: string;
-  threadId: string;
-  turnId: string;
+  version: 2;
+  type: NotifyEventType;
+  sessionId: string;
   cwd: string;
-  lastAssistantMessage?: string;
   observedAt: string;
+  notificationType?: string | undefined;
+  message?: string | undefined;
+  source?: string | undefined;
+  reason?: string | undefined;
 }
 
 export interface NotifyBridgeHealth {
@@ -40,33 +55,39 @@ function truncateUtf8(value: string, maxBytes: number): string {
   return encoded.subarray(0, maxBytes).toString("utf8").replace(/\uFFFD$/, "");
 }
 
+function optionalString(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string" || !value || value.includes("\0")) return undefined;
+  return value.slice(0, maxLength);
+}
+
 export function parseNotifyEvent(value: unknown): NotifyEvent {
   if (!value || typeof value !== "object") throw new Error("Notify payload must be an object");
   const raw = value as Record<string, unknown>;
   const type = typeof raw.type === "string" ? raw.type.slice(0, 100) : "unknown";
-  const threadId = typeof raw.threadId === "string" ? raw.threadId.slice(0, 200) : "";
-  const turnId = typeof raw.turnId === "string" ? raw.turnId.slice(0, 200) : "";
+  const sessionId = typeof raw.sessionId === "string" ? raw.sessionId.slice(0, 200) : "";
   const cwd = typeof raw.cwd === "string" ? raw.cwd.slice(0, 32_768) : "";
-  if (raw.version !== 1) throw new Error("Notify payload has an unsupported version");
+  if (raw.version !== 2) throw new Error("Notify payload has an unsupported version");
   if (!NOTIFY_EVENT_TYPES.has(type)) throw new Error("Notify payload has an unsupported event type");
-  if (!EVENT_ID_PATTERN.test(threadId) || (turnId && !EVENT_ID_PATTERN.test(turnId))) {
-    throw new Error("Notify payload contains an invalid thread or turn ID");
-  }
+  if (!EVENT_ID_PATTERN.test(sessionId)) throw new Error("Notify payload contains an invalid session ID");
   if (!cwd || cwd.includes("\0") || !path.isAbsolute(cwd)) {
     throw new Error("Notify payload is missing a trusted absolute cwd");
   }
-  const event: NotifyEvent = {
-    version: 1,
-    type,
-    threadId,
-    turnId,
+  const notificationType = optionalString(raw.notificationType, 64);
+  const message = typeof raw.message === "string" && raw.message ? truncateUtf8(raw.message, MAX_MESSAGE_BYTES) : undefined;
+  const source = optionalString(raw.source, 100);
+  const reason = optionalString(raw.reason, 100);
+  return {
+    version: 2,
+    type: type as NotifyEventType,
+    sessionId,
     cwd,
-    observedAt: typeof raw.observedAt === "string" && Number.isFinite(Date.parse(raw.observedAt)) ? raw.observedAt : new Date().toISOString()
+    observedAt:
+      typeof raw.observedAt === "string" && Number.isFinite(Date.parse(raw.observedAt)) ? raw.observedAt : new Date().toISOString(),
+    ...(notificationType ? { notificationType } : {}),
+    ...(message ? { message } : {}),
+    ...(source ? { source } : {}),
+    ...(reason ? { reason } : {})
   };
-  if (typeof raw.lastAssistantMessage === "string") {
-    event.lastAssistantMessage = truncateUtf8(raw.lastAssistantMessage, MAX_MESSAGE_BYTES);
-  }
-  return event;
 }
 
 export class NotifyBridgeServer {
@@ -149,7 +170,7 @@ export class NotifyBridgeServer {
       } catch {
         active = false;
       }
-      if (active) throw new Error("Another Codex Stream Deck plugin process owns the notify bridge");
+      if (active) throw new Error("Another Claude Code Monitor plugin process owns the notify bridge");
       await unlink(lockPath).catch(() => undefined);
       this.#lock = await open(lockPath, "wx", 0o600);
     }
@@ -158,7 +179,7 @@ export class NotifyBridgeServer {
   }
 
   async drainSpool(): Promise<void> {
-    const spool = path.join(codexHome(), "streamdeck-spool");
+    const spool = spoolDirectory();
     let names: string[];
     try {
       names = (await readdir(spool)).filter((name) => /^[A-Za-z0-9_.-]+\.json$/.test(name)).sort().slice(0, 500);
@@ -226,94 +247,4 @@ export class NotifyBridgeServer {
       if (!response.headersSent) response.writeHead(400, { "Cache-Control": "no-store", Connection: "close" }).end();
     });
   }
-}
-
-async function findPython(): Promise<string[]> {
-  const candidates = process.platform === "win32" ? [["py", "-3"], ["python", ""]] : [["python3", ""], ["python", ""]];
-  for (const [command, launcherArg] of candidates) {
-    if (!command) continue;
-    try {
-      const args = [...(launcherArg ? [launcherArg] : []), "--version"];
-      await execFileAsync(command, args, { timeout: 5_000, windowsHide: true });
-      return launcherArg ? [command, launcherArg] : [command];
-    } catch {
-      // Try the next launcher.
-    }
-  }
-  throw new Error("Python 3 is required for the Codex notify helper");
-}
-
-function parseTomlCommand(value: string): string[] | undefined {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) && parsed.every((entry) => typeof entry === "string") ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-export interface NotifyInstallResult {
-  installed: boolean;
-  chained: boolean;
-  configPath: string;
-  backupPath?: string;
-  message: string;
-}
-
-export async function installNotifyBridge(pluginRoot: string, dataDirectory: string): Promise<NotifyInstallResult> {
-  const launcher = await findPython();
-  const helperSource = path.join(pluginRoot, "helpers", "codex_streamdeck_notify.py");
-  const chainSource = path.join(pluginRoot, "helpers", "codex_streamdeck_notify_chain.py");
-  const helperTarget = path.join(dataDirectory, "codex_streamdeck_notify.py");
-  const chainTarget = path.join(dataDirectory, "codex_streamdeck_notify_chain.py");
-  await mkdir(dataDirectory, { recursive: true });
-  await copyFile(helperSource, helperTarget);
-  await copyFile(chainSource, chainTarget);
-
-  const configPath = path.join(codexHome(), "config.toml");
-  await mkdir(path.dirname(configPath), { recursive: true });
-  const original = await readFile(configPath, "utf8").catch(() => "");
-  const existingMatch = original.match(/^\s*notify\s*=\s*(\[[^\r\n]*\])\s*$/m);
-  const directCommand = [...launcher, helperTarget];
-  if (existingMatch && existingMatch[1]) {
-    const existing = parseTomlCommand(existingMatch[1]);
-    if (existing && JSON.stringify(existing) === JSON.stringify(directCommand)) {
-      return { installed: true, chained: false, configPath, message: "Notify bridge is already installed." };
-    }
-    if (!existing) {
-      return {
-        installed: false,
-        chained: false,
-        configPath,
-        message: "An existing notify command uses unsupported TOML syntax; it was left unchanged."
-      };
-    }
-    const chainConfig = path.join(dataDirectory, "notify-chain.json");
-    await writeFile(chainConfig, JSON.stringify({ commands: [existing, directCommand] }), { encoding: "utf8", mode: 0o600 });
-    const replacement = `notify = ${JSON.stringify([...launcher, chainTarget, chainConfig])}`;
-    return writeCodexConfig(configPath, original.replace(existingMatch[0], replacement), true);
-  }
-
-  const notifyLine = `notify = ${JSON.stringify(directCommand)}`;
-  const firstTable = original.search(/^\s*\[/m);
-  const updated = firstTable >= 0
-    ? `${original.slice(0, firstTable).replace(/\s*$/, "")}\n${notifyLine}\n\n${original.slice(firstTable)}`
-    : `${notifyLine}\n${original ? `\n${original}` : ""}`;
-  return writeCodexConfig(configPath, updated, false);
-}
-
-async function writeCodexConfig(configPath: string, contents: string, chained: boolean): Promise<NotifyInstallResult> {
-  const backupPath = `${configPath}.streamdeck-backup-${Date.now()}`;
-  const original = await readFile(configPath).catch(() => undefined);
-  if (original) await writeFile(backupPath, original, { mode: 0o600 });
-  const temporary = `${configPath}.${process.pid}.tmp`;
-  await writeFile(temporary, contents, { encoding: "utf8", mode: 0o600 });
-  await rename(temporary, configPath);
-  return {
-    installed: true,
-    chained,
-    configPath,
-    ...(original ? { backupPath } : {}),
-    message: chained ? "Notify bridge installed and chained after the existing notifier." : "Notify bridge installed. Restart Codex clients to activate it."
-  };
 }

@@ -11,7 +11,7 @@ export class DiagnosticLogger {
   #queue: Promise<void> = Promise.resolve();
 
   constructor(directory: string, debugEnabled: () => boolean) {
-    this.#file = path.join(directory, "codex-streamdeck.log");
+    this.#file = path.join(directory, "claude-streamdeck.log");
     this.#debugEnabled = debugEnabled;
   }
 

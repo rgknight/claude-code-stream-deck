@@ -1,35 +1,32 @@
 {
-  "name": "codex-stream-deck",
-  "version": "0.1.0",
+  "name": "claude-code-stream-deck",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "A Stream Deck control surface for local Codex projects and tasks.",
+  "description": "A Stream Deck monitor for local Claude Code sessions: keys light up when a session needs input or approval.",
   "license": "MIT",
-  "keywords": ["codex", "stream-deck", "productivity", "developer-tools"],
+  "keywords": ["claude-code", "stream-deck", "productivity", "developer-tools"],
   "scripts": {
     "build": "rollup --config",
     "dev": "rollup --config --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "node scripts/run-integration.mjs",
     "typecheck": "tsc --noEmit",
-    "validate": "streamdeck validate com.codexstreamdeck.control.sdPlugin",
-    "validate:ci": "streamdeck validate com.codexstreamdeck.control.sdPlugin --no-update-check",
+    "validate": "streamdeck validate com.claudecode.monitor.sdPlugin",
+    "validate:ci": "streamdeck validate com.claudecode.monitor.sdPlugin --no-update-check",
     "privacy": "node scripts/check-release.mjs",
     "security": "npm audit --audit-level=high && npm audit signatures && npm run privacy",
     "check": "npm run typecheck && npm test && npm run build && npm run validate",
-    "pack": "npm run build && streamdeck pack com.codexstreamdeck.control.sdPlugin --force"
+    "pack": "npm run build && streamdeck pack com.claudecode.monitor.sdPlugin --force"
   },
   "engines": {
     "node": ">=24"
   },
   "dependencies": {
-    "@elgato/streamdeck": "2.1.0",
-    "ajv": "8.20.0"
+    "@elgato/streamdeck": "2.1.0"
   },
   "devDependencies": {
     "@elgato/cli": "1.7.4",
-    "@openai/codex": "0.144.4",
     "@rollup/plugin-commonjs": "29.0.0",
     "@rollup/plugin-json": "6.1.0",
     "@rollup/plugin-node-resolve": "16.0.3",

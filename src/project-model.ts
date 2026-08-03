@@ -4,18 +4,12 @@ import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type {
-  CodexThread,
-  ExternalApproval,
-  ProjectState,
-  RuntimeStatus,
-  StatusEnvelope,
-  ThreadState
-} from "./domain.js";
+import type { ClaudeSession, ProjectState, SessionPhase } from "./domain.js";
 import type { GlobalSettings } from "./settings.js";
-import { normalizeRuntimeStatus } from "./status.js";
 
 const execFileAsync = promisify(execFile);
+
+const ATTENTION_PHASES = new Set<SessionPhase>(["needs_input", "needs_approval"]);
 
 export interface CanonicalProject {
   projectId: string;
@@ -61,150 +55,162 @@ export async function canonicalizeProject(cwd: string, groupWorktrees: boolean):
   };
 }
 
-function sourceKind(thread: CodexThread): string {
-  if (typeof thread.source === "string") return thread.source;
-  if (thread.source && "subAgent" in thread.source) return "subAgent";
-  if (thread.source && "custom" in thread.source) return "custom";
-  return "unknown";
+export function sessionNeedsAttention(session: ClaudeSession): boolean {
+  return ATTENTION_PHASES.has(session.phase);
 }
 
-export function threadIsEligible(thread: CodexThread, settings: GlobalSettings): boolean {
-  if (!thread.cwd) return false;
-  if (thread.ephemeral && !settings.includeEphemeral) return false;
-  const source = sourceKind(thread);
-  if (source === "exec" && !settings.includeExecThreads) return false;
-  if (source.startsWith("subAgent")) return false;
-  return settings.sourceKinds.length === 0 || settings.sourceKinds.includes(source) || source === "custom";
-}
-
-function runtimeFor(thread: CodexThread): RuntimeStatus {
-  return normalizeRuntimeStatus(thread.status);
-}
-
-export function projectDisplayName(thread: CodexThread, projectRoot: string): string {
-  const threadName = thread.name?.replace(/\s+/g, " ").trim();
-  if (threadName) return threadName;
-  const preview = thread.preview.replace(/\s+/g, " ").trim();
-  if (preview) return preview;
-  return path.basename(projectRoot) || projectRoot || "Untitled task";
-}
-
-function attentionNeeded(thread: ThreadState): boolean {
-  const workflow = thread.report?.report.workflowStatus;
-  return (
-    !!thread.externalApproval ||
-    runtimeFor(thread.thread).activeFlags.includes("waitingOnApproval") ||
-    ["needs_input", "blocked", "failed", "ready_for_review"].includes(workflow ?? "")
-  );
-}
-
-export function choosePrimaryThread(threads: ThreadState[], pinnedThreadId?: string): ThreadState {
-  const sorted = [...threads].sort((left, right) => {
-    const score = (candidate: ThreadState): number => {
-      const runtime = runtimeFor(candidate.thread);
-      const workflow = candidate.report?.report.workflowStatus ?? "unknown";
-      if (pinnedThreadId && candidate.thread.id === pinnedThreadId) return 10_000;
-      if (runtime.activeFlags.includes("waitingOnApproval")) return 9_000;
-      if (candidate.pluginTurnId) return 8_000;
-      if (["needs_input", "blocked", "failed", "ready_for_review"].includes(workflow)) return 7_000;
-      if (workflow !== "done") return 6_000;
+function phaseScore(phase: SessionPhase): number {
+  switch (phase) {
+    case "needs_approval":
+      return 9_000;
+    case "needs_input":
+      return 8_000;
+    case "failed":
+      return 7_000;
+    case "working":
+      return 6_000;
+    case "done":
       return 5_000;
-    };
-    return score(right) - score(left) || (right.thread.recencyAt ?? right.thread.updatedAt) - (left.thread.recencyAt ?? left.thread.updatedAt);
-  });
+    case "idle":
+      return 4_000;
+  }
+}
+
+export function choosePrimarySession(sessions: ClaudeSession[]): ClaudeSession {
+  const sorted = [...sessions].sort(
+    (left, right) => phaseScore(right.phase) - phaseScore(left.phase) || right.updatedAt - left.updatedAt
+  );
   const primary = sorted[0];
-  if (!primary) throw new Error("Cannot choose a primary thread from an empty project");
+  if (!primary) throw new Error("Cannot choose a primary session from an empty project");
   return primary;
 }
 
-export interface BuildProjectsOptions {
-  reports: Record<string, StatusEnvelope>;
-  approvals: Record<string, ExternalApproval>;
-  activeTurns: ReadonlyMap<string, string>;
-  handoffs: Record<string, boolean>;
-  pinnedThreadIds?: ReadonlySet<string>;
-  now?: number;
-}
-
-export async function buildProjects(
-  threads: CodexThread[],
-  settings: GlobalSettings,
-  options: BuildProjectsOptions
-): Promise<ProjectState[]> {
-  const now = options.now ?? Date.now();
-  const candidates = threads.filter((thread) => threadIsEligible(thread, settings));
-  const canonical = await mapWithConcurrency(candidates, 6, async (thread) => ({
-    thread,
-    project: await canonicalizeProject(thread.cwd, settings.groupWorktrees)
+export async function buildProjects(sessions: ClaudeSession[], settings: GlobalSettings): Promise<ProjectState[]> {
+  const canonical = await mapWithConcurrency(sessions, 6, async (session) => ({
+    session,
+    project: await canonicalizeProject(session.cwd, settings.groupWorktrees)
   }));
-  const groups = new Map<string, ThreadState[]>();
+  const groups = new Map<string, { project: CanonicalProject; sessions: ClaudeSession[] }>();
   for (const candidate of canonical) {
     if (!candidate) continue;
-    const state: ThreadState = {
-      thread: candidate.thread,
-      ...candidate.project,
-      ...(options.reports[candidate.thread.id] ? { report: options.reports[candidate.thread.id] } : {}),
-      ...(options.approvals[candidate.thread.id] ? { externalApproval: options.approvals[candidate.thread.id] } : {}),
-      ...(options.activeTurns.get(candidate.thread.id) ? { pluginTurnId: options.activeTurns.get(candidate.thread.id) } : {}),
-      ...(options.handoffs[candidate.thread.id] ? { handoff: true } : {})
-    };
-    const list = groups.get(candidate.project.projectId) ?? [];
-    list.push(state);
-    groups.set(candidate.project.projectId, list);
+    const group = groups.get(candidate.project.projectId) ?? { project: candidate.project, sessions: [] };
+    group.sessions.push(candidate.session);
+    groups.set(candidate.project.projectId, group);
   }
 
   const projects: ProjectState[] = [];
-  for (const states of groups.values()) {
-    const pinned = states.find((item) => options.pinnedThreadIds?.has(item.thread.id));
-    const primary = choosePrimaryThread(states, pinned?.thread.id);
-    const runtimeStatus = runtimeFor(primary.thread);
-    const recencyAt = Math.max(...states.map((item) => item.thread.recencyAt ?? item.thread.updatedAt));
-    const project: ProjectState = {
-      projectId: primary.projectId,
-      projectRoot: primary.projectRoot,
-      identityAnchor: primary.identityAnchor,
-      displayName: projectDisplayName(primary.thread, primary.projectRoot),
-      threads: states,
-      primaryThreadId: primary.thread.id,
-      runtimeStatus,
-      handoff: !!primary.handoff,
-      attentionCount: states.filter(attentionNeeded).length,
-      recencyAt,
-      ...(primary.report ? { report: primary.report } : {}),
-      ...(primary.externalApproval ? { externalApproval: primary.externalApproval } : {}),
-      ...(primary.pluginTurnId ? { pluginTurnId: primary.pluginTurnId } : {})
-    };
-    projects.push(project);
+  for (const group of groups.values()) {
+    const primary = choosePrimarySession(group.sessions);
+    projects.push({
+      projectId: group.project.projectId,
+      projectRoot: group.project.projectRoot,
+      identityAnchor: group.project.identityAnchor,
+      displayName: path.basename(group.project.projectRoot) || group.project.projectRoot,
+      sessions: group.sessions,
+      primarySessionId: primary.sessionId,
+      phase: primary.phase,
+      stale: !!primary.stale,
+      attentionCount: group.sessions.filter(sessionNeedsAttention).length,
+      recencyAt: Math.max(...group.sessions.map((session) => session.updatedAt))
+    });
   }
   return projects.sort(compareProjects);
 }
 
 export function isUnderway(project: ProjectState, settings: GlobalSettings, now = Date.now()): boolean {
-  if (project.pluginTurnId || project.externalApproval || project.runtimeStatus.activeFlags.includes("waitingOnApproval")) return true;
-  const workflow = project.report?.report.workflowStatus;
-  if (["working", "needs_input", "blocked", "ready_for_review", "paused", "failed"].includes(workflow ?? "")) return true;
-  const ageMs = now - project.recencyAt * 1_000;
-  if (workflow === "done") {
-    const observed = project.report ? Date.parse(project.report.observedAt) : project.recencyAt * 1_000;
-    return now - observed <= settings.doneGraceHours * 3_600_000;
+  if (ATTENTION_PHASES.has(project.phase) || project.phase === "working") return true;
+  if (project.phase === "done" || project.phase === "failed") {
+    return now - project.recencyAt <= settings.doneGraceHours * 3_600_000;
   }
-  return ageMs <= settings.recentHorizonDays * 86_400_000;
+  return now - project.recencyAt <= settings.recentHorizonDays * 86_400_000;
 }
 
 function projectPriority(project: ProjectState): number {
-  const workflow = project.report?.report.workflowStatus;
-  if (project.externalApproval || project.runtimeStatus.activeFlags.includes("waitingOnApproval")) return 90;
-  if (workflow === "failed" || project.runtimeStatus.type === "system_error") return 80;
-  if (workflow === "needs_input") return 70;
-  if (workflow === "blocked") return 60;
-  if (project.pluginTurnId || project.runtimeStatus.type === "active" || workflow === "working") return 50;
-  if (workflow === "ready_for_review") return 40;
-  if (workflow === "paused") return 30;
-  return 10;
+  switch (project.phase) {
+    case "needs_approval":
+      return 90;
+    case "failed":
+      return 80;
+    case "needs_input":
+      return 70;
+    case "working":
+      return 50;
+    case "done":
+      return 20;
+    case "idle":
+      return 10;
+  }
 }
 
 export function compareProjects(left: ProjectState, right: ProjectState): number {
   return projectPriority(right) - projectPriority(left) || right.recencyAt - left.recencyAt;
+}
+
+/**
+ * Sticky slot assignment: a project keeps its slot while it stays underway;
+ * new projects claim the lowest free slot; when everything is full, a project
+ * that needs attention may evict an idle/done project (never a working or
+ * attention-needing one). Mutates `slots` in place and reports whether it
+ * changed. Slot keys are stringified indices 0..autoSlotCount-1.
+ */
+export function reconcileSlots(
+  slots: Record<string, string>,
+  underway: ProjectState[],
+  autoSlotCount: number
+): boolean {
+  let changed = false;
+  const byId = new Map(underway.map((project) => [project.projectId, project]));
+
+  const seen = new Set<string>();
+  for (const [slot, projectId] of Object.entries(slots)) {
+    const index = Number.parseInt(slot, 10);
+    const valid =
+      Number.isInteger(index) &&
+      index >= 0 &&
+      index < autoSlotCount &&
+      byId.has(projectId) &&
+      !seen.has(projectId);
+    if (!valid) {
+      delete slots[slot];
+      changed = true;
+      continue;
+    }
+    seen.add(projectId);
+  }
+
+  const unassigned = underway.filter((project) => !seen.has(project.projectId)).sort(compareProjects);
+  for (const project of unassigned) {
+    let slot = firstFreeSlot(slots, autoSlotCount);
+    if (slot === undefined && sessionNeedsAttentionPhase(project.phase)) {
+      slot = evictableSlot(slots, byId);
+    }
+    if (slot === undefined) continue;
+    slots[slot] = project.projectId;
+    seen.add(project.projectId);
+    changed = true;
+  }
+  return changed;
+}
+
+function sessionNeedsAttentionPhase(phase: SessionPhase): boolean {
+  return ATTENTION_PHASES.has(phase);
+}
+
+function firstFreeSlot(slots: Record<string, string>, autoSlotCount: number): string | undefined {
+  for (let index = 0; index < autoSlotCount; index += 1) {
+    if (!slots[String(index)]) return String(index);
+  }
+  return undefined;
+}
+
+function evictableSlot(slots: Record<string, string>, byId: Map<string, ProjectState>): string | undefined {
+  let candidate: { slot: string; recencyAt: number } | undefined;
+  for (const [slot, projectId] of Object.entries(slots)) {
+    const project = byId.get(projectId);
+    if (!project || (project.phase !== "idle" && project.phase !== "done")) continue;
+    if (!candidate || project.recencyAt < candidate.recencyAt) candidate = { slot, recencyAt: project.recencyAt };
+  }
+  return candidate?.slot;
 }
 
 async function mapWithConcurrency<T, U>(items: T[], limit: number, mapper: (item: T) => Promise<U>): Promise<Array<U | undefined>> {

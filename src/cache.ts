@@ -5,13 +5,10 @@ import type { CacheFile } from "./domain.js";
 import type { DiagnosticLogger } from "./logger.js";
 
 const EMPTY_CACHE: CacheFile = {
-  schemaVersion: 1,
-  threads: [],
+  schemaVersion: 2,
+  sessions: {},
   projects: [],
-  reports: {},
-  approvals: {},
-  activity: {},
-  handoffs: {}
+  slots: {}
 };
 const MAX_CACHE_BYTES = 10 * 1024 * 1024;
 
@@ -19,13 +16,12 @@ function isCache(value: unknown): value is CacheFile {
   if (!value || typeof value !== "object") return false;
   const object = value as Partial<CacheFile>;
   return (
-    object.schemaVersion === 1 &&
-    Array.isArray(object.threads) &&
+    object.schemaVersion === 2 &&
+    !!object.sessions &&
+    typeof object.sessions === "object" &&
     Array.isArray(object.projects) &&
-    !!object.reports &&
-    !!object.approvals &&
-    !!object.activity &&
-    !!object.handoffs
+    !!object.slots &&
+    typeof object.slots === "object"
   );
 }
 
@@ -35,8 +31,8 @@ export class CacheStore {
   readonly #logger: DiagnosticLogger;
 
   constructor(directory: string, logger: DiagnosticLogger) {
-    this.#file = path.join(directory, "cache-v1.json");
-    this.#backup = path.join(directory, "cache-v1.last-good.json");
+    this.#file = path.join(directory, "cache-v2.json");
+    this.#backup = path.join(directory, "cache-v2.last-good.json");
     this.#logger = logger;
   }
 

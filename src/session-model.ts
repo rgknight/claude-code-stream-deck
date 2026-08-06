@@ -15,6 +15,14 @@ const PASSIVE_NOTIFICATION_TYPES = new Set([
 
 const RESUMABLE_PHASES = new Set<SessionPhase>(["needs_approval", "needs_input", "idle"]);
 
+/**
+ * Tools that hand control back mid-turn: Claude has stopped and is waiting on
+ * an answer. No Notification hook fires for them, so their PreToolUse event is
+ * the only signal that separates "parked on a question" from "working".
+ */
+const QUESTION_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
+const QUESTION_NOTIFICATION_TYPE = "question_prompt";
+
 export interface ApplyResult {
   /** Anything observable changed; re-render. */
   changed: boolean;
@@ -75,6 +83,17 @@ export function applySessionEvent(
         setAttention(session, event);
       }
       break;
+    case "pre-tool":
+      if (event.toolName && QUESTION_TOOLS.has(event.toolName)) {
+        session.phase = "needs_input";
+        setAttention(session, event, QUESTION_NOTIFICATION_TYPE);
+      } else if (RESUMABLE_PHASES.has(session.phase)) {
+        // A hand-broadened matcher can deliver other tools; those only prove
+        // that work is in flight.
+        session.phase = "working";
+        clearAttention(session);
+      }
+      break;
     case "post-tool":
       // A tool finished, so any pending approval or input request was resolved
       // and the session is provably working again.
@@ -96,9 +115,10 @@ export function applySessionEvent(
   return { changed: true, persist };
 }
 
-function setAttention(session: ClaudeSession, event: NotifyEvent): void {
+function setAttention(session: ClaudeSession, event: NotifyEvent, fallbackType?: string): void {
   session.stale = undefined;
-  if (event.notificationType) session.notificationType = event.notificationType;
+  const notificationType = event.notificationType ?? fallbackType;
+  if (notificationType) session.notificationType = notificationType;
   else delete session.notificationType;
   if (event.message) session.message = event.message;
   else delete session.message;

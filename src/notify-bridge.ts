@@ -12,6 +12,7 @@ const NOTIFY_EVENT_TYPES = new Set([
   "session-start",
   "prompt-submit",
   "notification",
+  "pre-tool",
   "post-tool",
   "stop",
   "stop-failure",
@@ -23,6 +24,7 @@ export type NotifyEventType =
   | "session-start"
   | "prompt-submit"
   | "notification"
+  | "pre-tool"
   | "post-tool"
   | "stop"
   | "stop-failure"
@@ -38,6 +40,8 @@ export interface NotifyEvent {
   message?: string | undefined;
   source?: string | undefined;
   reason?: string | undefined;
+  /** Tool name, carried only by `pre-tool` events. */
+  toolName?: string | undefined;
 }
 
 export interface NotifyBridgeHealth {
@@ -76,6 +80,7 @@ export function parseNotifyEvent(value: unknown): NotifyEvent {
   const message = typeof raw.message === "string" && raw.message ? truncateUtf8(raw.message, MAX_MESSAGE_BYTES) : undefined;
   const source = optionalString(raw.source, 100);
   const reason = optionalString(raw.reason, 100);
+  const toolName = optionalString(raw.toolName, 100);
   return {
     version: 2,
     type: type as NotifyEventType,
@@ -86,7 +91,8 @@ export function parseNotifyEvent(value: unknown): NotifyEvent {
     ...(notificationType ? { notificationType } : {}),
     ...(message ? { message } : {}),
     ...(source ? { source } : {}),
-    ...(reason ? { reason } : {})
+    ...(reason ? { reason } : {}),
+    ...(toolName ? { toolName } : {})
   };
 }
 

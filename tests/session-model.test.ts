@@ -58,6 +58,34 @@ describe("session state machine", () => {
     expect(sessions[id]?.phase).toBe("needs_input");
   });
 
+  it("parks the session on question tools that fire no notification", () => {
+    const sessions: Record<string, ClaudeSession> = {};
+    const id = "11111111-2222-3333-4444-555555555555";
+    applySessionEvent(sessions, event({ type: "prompt-submit" }), NOW);
+    const parked = applySessionEvent(sessions, event({ type: "pre-tool", toolName: "AskUserQuestion" }), NOW);
+    expect(parked).toEqual({ changed: true, persist: true });
+    expect(sessions[id]?.phase).toBe("needs_input");
+    expect(sessions[id]?.notificationType).toBe("question_prompt");
+    // Answering the question runs the tool, which reports back as post-tool.
+    applySessionEvent(sessions, event({ type: "post-tool" }), NOW);
+    expect(sessions[id]?.phase).toBe("working");
+    expect(sessions[id]?.notificationType).toBeUndefined();
+
+    applySessionEvent(sessions, event({ type: "pre-tool", toolName: "ExitPlanMode" }), NOW);
+    expect(sessions[id]?.phase).toBe("needs_input");
+  });
+
+  it("treats any other pre-tool event as proof of work in flight", () => {
+    const sessions: Record<string, ClaudeSession> = {};
+    const id = "11111111-2222-3333-4444-555555555555";
+    applySessionEvent(sessions, event({ type: "notification", notificationType: "idle_prompt" }), NOW);
+    expect(sessions[id]?.phase).toBe("needs_input");
+    applySessionEvent(sessions, event({ type: "pre-tool", toolName: "Bash" }), NOW);
+    expect(sessions[id]?.phase).toBe("working");
+    applySessionEvent(sessions, event({ type: "pre-tool" }), NOW);
+    expect(sessions[id]?.phase).toBe("working");
+  });
+
   it("does not knock a working session back to idle on compact or resume", () => {
     const sessions: Record<string, ClaudeSession> = {};
     const id = "11111111-2222-3333-4444-555555555555";

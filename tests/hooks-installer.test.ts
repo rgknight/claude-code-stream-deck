@@ -7,6 +7,7 @@ import {
   checkHookSettings,
   HOOK_EVENTS,
   mergeHookSettings,
+  QUESTION_TOOL_MATCHER,
   removeHookSettings
 } from "../src/hooks-installer.js";
 
@@ -45,8 +46,36 @@ describe("hook settings merge", () => {
     const hooks = settings.hooks as Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>>;
     expect(hooks.Stop?.[0]?.hooks[0]?.command).toContain("afplay");
     expect(hooks.Stop?.[1]?.hooks[0]?.command).toBe(COMMAND);
-    expect(hooks.PreToolUse).toHaveLength(1);
+    // The user's own PreToolUse group is untouched; ours is appended beside it.
+    expect(hooks.PreToolUse).toHaveLength(2);
     expect(hooks.PreToolUse?.[0]?.matcher).toBe("Bash");
+    expect(hooks.PreToolUse?.[0]?.hooks[0]?.command).toBe("./lint.sh");
+    expect(hooks.PreToolUse?.[1]?.matcher).toBe(QUESTION_TOOL_MATCHER);
+  });
+
+  it("scopes PreToolUse to the question tools and leaves other events matcher-less", () => {
+    const { settings } = mergeHookSettings({}, COMMAND);
+    const hooks = settings.hooks as Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>>;
+    expect(hooks.PreToolUse?.[0]?.matcher).toBe(QUESTION_TOOL_MATCHER);
+    expect(QUESTION_TOOL_MATCHER).toContain("AskUserQuestion");
+    for (const event of HOOK_EVENTS) {
+      if (event === "PreToolUse") continue;
+      expect(hooks[event]?.[0]).not.toHaveProperty("matcher");
+    }
+  });
+
+  it("repairs a stale PreToolUse matcher on a group that is only ours", () => {
+    const stale = mergeHookSettings({}, COMMAND).settings;
+    const groups = (stale.hooks as Record<string, Array<{ matcher?: string }>>).PreToolUse;
+    groups![0]!.matcher = "AskUserQuestion";
+    // A matcher that no longer covers every question tool is not a full install.
+    expect(checkHookSettings(stale)).toBe("partial");
+    const { settings, changed } = mergeHookSettings(structuredClone(stale), COMMAND);
+    expect(changed).toBe(true);
+    const hooks = settings.hooks as Record<string, Array<{ matcher?: string; hooks: unknown[] }>>;
+    expect(hooks.PreToolUse).toHaveLength(1);
+    expect(hooks.PreToolUse?.[0]?.matcher).toBe(QUESTION_TOOL_MATCHER);
+    expect(checkHookSettings(settings)).toBe("installed");
   });
 
   it("updates a stale command in place instead of duplicating", () => {

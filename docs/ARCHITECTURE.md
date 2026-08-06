@@ -20,7 +20,7 @@ The plugin process is the only long-running component. There is no polling and n
 
 ## Event pipeline
 
-Seven Claude Code hook events are installed (`SessionStart`, `UserPromptSubmit`, `Notification`, `PostToolUse`, `Stop`, `StopFailure`, `SessionEnd`). The helper reads the hook payload from stdin, keeps only metadata (session ID, cwd, event type, notification type, bounded message), stamps it, and POSTs it to the bridge with a 0.75 s timeout. On failure it spools the event atomically to a local directory — except `post-tool` events, which are high-volume and worthless when stale. The helper always exits 0 so hooks never slow a session down.
+Eight Claude Code hook events are installed (`SessionStart`, `UserPromptSubmit`, `Notification`, `PreToolUse`, `PostToolUse`, `Stop`, `StopFailure`, `SessionEnd`). `PreToolUse` is the only scoped entry: it carries the matcher `AskUserQuestion|ExitPlanMode`, because those tools park a session waiting on the user without emitting any notification, and a matcher-less `PreToolUse` would fire on every tool call. The helper reads the hook payload from stdin, keeps only metadata (session ID, cwd, event type, notification type, bounded message, and — for `pre-tool` only — the tool name), stamps it, and POSTs it to the bridge with a 0.75 s timeout. On failure it spools the event atomically to a local directory — except `post-tool` events, which are high-volume and worthless when stale. The helper always exits 0 so hooks never slow a session down.
 
 The bridge validates every request: POST to `/event` only, bearer token, `application/json`, loopback remote address, 256 KiB body cap, and a strict allow-list reconstruction of the event (`version === 2`, known type, ID grammar, absolute NUL-free cwd). The spool drain applies the same validation and caps at 500 files per pass.
 
@@ -33,6 +33,7 @@ The bridge validates every request: POST to `/event` only, bearer token, `applic
 | `session-start` | new session → `idle`; `clear`/`startup` resets, `compact`/`resume` keeps the current phase |
 | `prompt-submit` | → `working` |
 | `notification` | `permission_prompt` → `needs_approval`; passive types (e.g. `auth_success`) no change; everything else → `needs_input` |
+| `pre-tool` | `AskUserQuestion`/`ExitPlanMode` → `needs_input` (`question_prompt`); any other tool behaves like `post-tool` |
 | `post-tool` | `needs_approval`/`needs_input`/`idle` → `working` (proof the request was resolved) |
 | `stop` | → `done` |
 | `stop-failure` | → `failed` |

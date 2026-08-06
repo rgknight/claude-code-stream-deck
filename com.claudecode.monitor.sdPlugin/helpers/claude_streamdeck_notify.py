@@ -25,11 +25,16 @@ EVENT_TYPES = {
     "SessionStart": "session-start",
     "UserPromptSubmit": "prompt-submit",
     "Notification": "notification",
+    "PreToolUse": "pre-tool",
     "PostToolUse": "post-tool",
     "Stop": "stop",
     "StopFailure": "stop-failure",
     "SessionEnd": "session-end",
 }
+
+# Tools whose PreToolUse hook proves the session is parked waiting on the user.
+# The tool name is the only extra field carried, and only for these events.
+TOOL_NAME_TYPES = {"pre-tool"}
 
 # High-volume, low-value once stale; do not spool when the bridge is down.
 SPOOL_SKIP_TYPES = {"post-tool"}
@@ -83,6 +88,10 @@ def minimize(payload):
         message = clean_text(payload.get("message"), MAX_MESSAGE_CHARS)
         if message:
             event["message"] = message
+    if event_type in TOOL_NAME_TYPES:
+        tool_name = clean_text(payload.get("tool_name"), 100)
+        if tool_name:
+            event["toolName"] = tool_name
     source = clean_text(payload.get("source"), 100)
     if source:
         event["source"] = source

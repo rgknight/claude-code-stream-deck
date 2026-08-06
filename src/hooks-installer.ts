@@ -14,11 +14,24 @@ export const HOOK_EVENTS = [
   "SessionStart",
   "UserPromptSubmit",
   "Notification",
+  "PreToolUse",
   "PostToolUse",
   "Stop",
   "StopFailure",
   "SessionEnd"
 ] as const;
+
+export type HookEvent = (typeof HOOK_EVENTS)[number];
+
+/** Tools that park a session waiting on the user without any notification. */
+export const QUESTION_TOOL_MATCHER = "AskUserQuestion|ExitPlanMode";
+
+/**
+ * PreToolUse fires for every tool call, so ours is scoped to the handful of
+ * tools whose prompts would otherwise be invisible. Every other event is
+ * installed matcher-less, which Claude Code reads as "all invocations".
+ */
+const HOOK_MATCHERS: Partial<Record<HookEvent, string>> = { PreToolUse: QUESTION_TOOL_MATCHER };
 const HOOK_TIMEOUT_SECONDS = 10;
 
 export interface HooksInstallResult {
@@ -96,14 +109,24 @@ export function mergeHookSettings(settings: unknown, command: string): MergeResu
   base.hooks = hooks;
   let changed = false;
   for (const event of HOOK_EVENTS) {
+    const matcher = HOOK_MATCHERS[event];
     const groups: HookGroup[] = Array.isArray(hooks[event]) ? (hooks[event] as HookGroup[]) : [];
     hooks[event] = groups;
     let found = false;
     for (const group of groups) {
       if (!isRecord(group) || !Array.isArray(group.hooks)) continue;
-      for (const entry of group.hooks) {
-        if (!isOurHook(entry)) continue;
-        found = true;
+      const ours = group.hooks.filter(isOurHook);
+      if (ours.length === 0) continue;
+      // A group holding nothing but our entries is ours to retarget; one where
+      // the user parked their own hooks alongside ours keeps its matcher.
+      const retargetable = ours.length === group.hooks.length;
+      if (matcher && group.matcher !== matcher && !retargetable) continue;
+      found = true;
+      if (matcher && group.matcher !== matcher) {
+        group.matcher = matcher;
+        changed = true;
+      }
+      for (const entry of ours) {
         if (entry.type !== "command" || entry.command !== command || entry.timeout !== HOOK_TIMEOUT_SECONDS) {
           entry.type = "command";
           entry.command = command;
@@ -113,7 +136,10 @@ export function mergeHookSettings(settings: unknown, command: string): MergeResu
       }
     }
     if (!found) {
-      groups.push({ hooks: [{ type: "command", command, timeout: HOOK_TIMEOUT_SECONDS }] });
+      groups.push({
+        ...(matcher ? { matcher } : {}),
+        hooks: [{ type: "command", command, timeout: HOOK_TIMEOUT_SECONDS }]
+      });
       changed = true;
     }
   }
@@ -152,7 +178,16 @@ export function checkHookSettings(settings: unknown): HooksStatus {
   for (const event of HOOK_EVENTS) {
     const groups = hooks[event];
     if (!Array.isArray(groups)) continue;
-    const present = groups.some((group) => isRecord(group) && Array.isArray(group.hooks) && group.hooks.some(isOurHook));
+    const matcher = HOOK_MATCHERS[event];
+    // A scoped event only counts when the matcher still covers the tools we
+    // need, so a narrowed or stale matcher reports partial and invites a repair.
+    const present = groups.some(
+      (group) =>
+        isRecord(group) &&
+        Array.isArray(group.hooks) &&
+        group.hooks.some(isOurHook) &&
+        (!matcher || group.matcher === matcher)
+    );
     if (present) installedCount += 1;
   }
   if (installedCount === HOOK_EVENTS.length) return "installed";

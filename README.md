@@ -75,7 +75,7 @@ Session keys follow physical position automatically. Projects claim keys stickil
 | Label | Meaning |
 | --- | --- |
 | `APPROVAL` | The session is waiting for a permission decision. |
-| `INPUT` | The session is waiting for your next prompt or an answer. |
+| `INPUT` | The session is waiting for your next prompt, an answer to a question, or plan approval. |
 | `WORKING` | Claude is actively working. |
 | `ACTIVE?` | The session claimed to be working but has been silent too long. |
 | `DONE` | The last turn completed; hold the key to acknowledge. |

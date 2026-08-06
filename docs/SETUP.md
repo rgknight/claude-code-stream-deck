@@ -32,7 +32,7 @@ Session keys use their physical position by default (top-left is slot 0). The nu
 
 1. Select any Claude Code Monitor key and open its Property Inspector.
 2. Press **Install hooks**.
-3. The installer copies the helper into the plugin's data directory and merges hook entries for `SessionStart`, `UserPromptSubmit`, `Notification`, `PostToolUse`, `Stop`, `StopFailure`, and `SessionEnd` into `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). A timestamped backup of the file is written first.
+3. The installer copies the helper into the plugin's data directory and merges hook entries for `SessionStart`, `UserPromptSubmit`, `Notification`, `PreToolUse` (scoped to `AskUserQuestion|ExitPlanMode`), `PostToolUse`, `Stop`, `StopFailure`, and `SessionEnd` into `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). A timestamped backup of the file is written first.
 4. Press **Check hooks** — it should report `installed`. Running Claude Code sessions pick up settings changes automatically.
 
 The installer never overwrites existing hooks, preserves every unrelated setting, and refuses to modify a settings file it cannot parse. **Remove hooks** reverses the change.
@@ -65,6 +65,7 @@ Events carry only session metadata (IDs, cwd, event/notification type); no promp
 | Keys show `SETUP` | Hooks are missing/partial — press **Install hooks**, then **Check hooks**. |
 | Keys show `BRIDGE` | The loopback bridge failed to start (or is disabled in global settings). Check the diagnostics folder logs; another plugin instance may hold the lock. |
 | Keys never change | Confirm hooks with `/hooks` inside Claude Code; confirm `python3 --version` works; watch the Health key counter while submitting a prompt. |
+| `WORKING` while Claude is asking you a question | The scoped `PreToolUse` hook is missing or narrowed — keys will already show `SETUP`; press **Install hooks** to repair it. |
 | Key stuck on `WORKING` | A crashed session sends no events; it turns `ACTIVE?` after `staleWorkingMinutes` and expires after `sessionTtlHours`. Press Health to force a GC pass. |
 | Tap opens a new window | The session cwd differs from the folder your window has open (e.g. parent folder). Pin the key to the exact project root you open in VS Code. |
 | Updates missed while Stream Deck was closed | Events spool locally and drain on the next plugin start or Health press (`post-tool` events are intentionally not spooled). |

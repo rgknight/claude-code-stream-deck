@@ -91,6 +91,22 @@ describe("claude hook helper (end-to-end, no bridge running)", () => {
     expect(await spooledEvents()).toHaveLength(0);
   });
 
+  it("carries the tool name on pre-tool events so question prompts are visible", async () => {
+    await runHelper({
+      hook_event_name: "PreToolUse",
+      session_id: "11111111-2222-3333-4444-555555555555",
+      cwd: "/repo/project",
+      tool_name: "AskUserQuestion",
+      tool_input: { questions: [{ question: "Which database?" }] }
+    });
+    const events = await spooledEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ version: 2, type: "pre-tool", toolName: "AskUserQuestion" });
+    // Privacy: the question text itself must never leave the hook payload.
+    expect(events[0]).not.toHaveProperty("tool_input");
+    expect(JSON.stringify(events[0])).not.toContain("database");
+  });
+
   it("exits 0 and stays silent on unknown events and malformed input", async () => {
     expect(await runHelper({ hook_event_name: "SomethingNew", session_id: "abc", cwd: "/repo" })).toBe(0);
     expect(await runHelper("this is not json")).toBe(0);

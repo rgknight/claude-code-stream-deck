@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## 0.2.3 — 2026-08-12
+
+- Sessions parked on a permission prompt now light up **APPROVAL** instead of sitting on **WORKING** when Claude Code runs inside an editor. The `permission_prompt` notification is emitted only by the terminal UI, so sessions launched with `--permission-prompt-tool stdio` (the VS Code and JetBrains extensions) produced no `Notification` hook at all. A new `PermissionRequest` hook — which fires from the shared permission machinery regardless of front end — supplies the signal; approving resolves it through the existing `PostToolUse` hook.
+- `permission-request` events carry the tool name and nothing else; `tool_input` is never read. The helper stays silent and exits 0, so it never decides a permission on your behalf.
+- **Existing installs must press Install hooks once**; keys show `SETUP` until they do.
+
 ## 0.2.2 — 2026-08-05
 
 - Sessions parked on an `AskUserQuestion` or `ExitPlanMode` prompt now light up **INPUT** instead of sitting on **WORKING**. Those tools fire no `Notification` hook, so a new `PreToolUse` hook — scoped to the matcher `AskUserQuestion|ExitPlanMode` so it does not fire on every tool call — supplies the missing signal; answering the question resolves it through the existing `PostToolUse` hook.

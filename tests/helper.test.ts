@@ -8,13 +8,19 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 const HELPER = path.resolve("com.claudecode.monitor.sdPlugin/helpers/claude_streamdeck_notify.py");
 
 let dataDir: string;
+/** stdout of the most recent `runHelper` call; decision-capable hooks read it. */
+let lastStdout = "";
 
 async function runHelper(payload: unknown): Promise<number> {
   const input = typeof payload === "string" ? payload : JSON.stringify(payload);
+  lastStdout = "";
   return new Promise<number>((resolve, reject) => {
     const child = spawn("python3", [HELPER], {
       env: { ...process.env, CLAUDE_STREAMDECK_DATA_DIR: dataDir },
-      stdio: ["pipe", "ignore", "ignore"]
+      stdio: ["pipe", "pipe", "ignore"]
+    });
+    child.stdout.on("data", (chunk: Buffer) => {
+      lastStdout += chunk.toString("utf8");
     });
     const timer = setTimeout(() => {
       child.kill();
@@ -24,7 +30,7 @@ async function runHelper(payload: unknown): Promise<number> {
       clearTimeout(timer);
       reject(error);
     });
-    child.once("exit", (code) => {
+    child.once("close", (code) => {
       clearTimeout(timer);
       resolve(code ?? -1);
     });
@@ -105,6 +111,26 @@ describe("claude hook helper (end-to-end, no bridge running)", () => {
     // Privacy: the question text itself must never leave the hook payload.
     expect(events[0]).not.toHaveProperty("tool_input");
     expect(JSON.stringify(events[0])).not.toContain("database");
+  });
+
+  it("carries the tool name but no input on permission-request events", async () => {
+    const code = await runHelper({
+      hook_event_name: "PermissionRequest",
+      session_id: "11111111-2222-3333-4444-555555555555",
+      cwd: "/repo/project",
+      tool_name: "Bash",
+      tool_use_id: "toolu_01",
+      tool_input: { command: "rm -rf /secret-vault" }
+    });
+    // PermissionRequest is a decision-capable hook: silence plus exit 0 must
+    // leave the prompt for the user.
+    expect(code).toBe(0);
+    expect(lastStdout).toBe("");
+    const events = await spooledEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ version: 2, type: "permission-request", toolName: "Bash" });
+    expect(events[0]).not.toHaveProperty("tool_input");
+    expect(JSON.stringify(events[0])).not.toContain("secret-vault");
   });
 
   it("exits 0 and stays silent on unknown events and malformed input", async () => {

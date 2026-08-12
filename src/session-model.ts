@@ -22,6 +22,7 @@ const RESUMABLE_PHASES = new Set<SessionPhase>(["needs_approval", "needs_input",
  */
 const QUESTION_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
 const QUESTION_NOTIFICATION_TYPE = "question_prompt";
+const PERMISSION_NOTIFICATION_TYPE = "permission_prompt";
 
 export interface ApplyResult {
   /** Anything observable changed; re-render. */
@@ -81,6 +82,21 @@ export function applySessionEvent(
       } else if (!event.notificationType || !PASSIVE_NOTIFICATION_TYPES.has(event.notificationType)) {
         session.phase = "needs_input";
         setAttention(session, event);
+      }
+      break;
+    case "permission-request":
+      // The only signal that survives every front end. The TUI's
+      // `permission_prompt` notification is not emitted when the permission
+      // prompt is delegated to an editor (VS Code runs Claude Code with
+      // `--permission-prompt-tool stdio`), but PermissionRequest fires from the
+      // shared permission machinery either way. Question tools route through
+      // the same machinery, and those read as INPUT rather than APPROVAL.
+      if (event.toolName && QUESTION_TOOLS.has(event.toolName)) {
+        session.phase = "needs_input";
+        setAttention(session, event, QUESTION_NOTIFICATION_TYPE);
+      } else {
+        session.phase = "needs_approval";
+        setAttention(session, event, PERMISSION_NOTIFICATION_TYPE);
       }
       break;
     case "pre-tool":

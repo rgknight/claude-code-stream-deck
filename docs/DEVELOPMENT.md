@@ -40,7 +40,7 @@ npm ci
 
 With two Claude Code sessions in different VS Code windows/Spaces:
 
-1. Ask for a tool that needs permission → key turns `APPROVAL`; approve → key returns to `WORKING` on the next tool completion.
+1. Ask for a tool that needs permission → key turns `APPROVAL`; approve → key returns to `WORKING` on the next tool completion. Run this from both an editor extension and a bare terminal: only the terminal emits a `permission_prompt` notification, so the editor case exercises the `PermissionRequest` hook on its own.
 2. Let a session finish → `DONE` with age; hold the key → `IDLE`.
 3. Wait for an idle-input notification → `INPUT`; tap → the right window/Space is focused.
 4. `/clear` or exit a session → its key frees.

@@ -75,6 +75,30 @@ describe("session state machine", () => {
     expect(sessions[id]?.phase).toBe("needs_input");
   });
 
+  it("flags approval from the permission-request hook when no notification fires", () => {
+    const sessions: Record<string, ClaudeSession> = {};
+    const id = "11111111-2222-3333-4444-555555555555";
+    applySessionEvent(sessions, event({ type: "prompt-submit" }), NOW);
+    // Editor-hosted sessions delegate the prompt over stdio, so the TUI's
+    // `permission_prompt` notification never arrives.
+    const parked = applySessionEvent(sessions, event({ type: "permission-request", toolName: "Bash" }), NOW);
+    expect(parked).toEqual({ changed: true, persist: true });
+    expect(sessions[id]?.phase).toBe("needs_approval");
+    expect(sessions[id]?.notificationType).toBe("permission_prompt");
+    // Approving runs the tool, which reports back as post-tool.
+    applySessionEvent(sessions, event({ type: "post-tool" }), NOW);
+    expect(sessions[id]?.phase).toBe("working");
+    expect(sessions[id]?.notificationType).toBeUndefined();
+  });
+
+  it("reads a permission request for a question tool as input, not approval", () => {
+    const sessions: Record<string, ClaudeSession> = {};
+    const id = "11111111-2222-3333-4444-555555555555";
+    applySessionEvent(sessions, event({ type: "permission-request", toolName: "AskUserQuestion" }), NOW);
+    expect(sessions[id]?.phase).toBe("needs_input");
+    expect(sessions[id]?.notificationType).toBe("question_prompt");
+  });
+
   it("treats any other pre-tool event as proof of work in flight", () => {
     const sessions: Record<string, ClaudeSession> = {};
     const id = "11111111-2222-3333-4444-555555555555";

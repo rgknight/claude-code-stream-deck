@@ -12,6 +12,7 @@ const NOTIFY_EVENT_TYPES = new Set([
   "session-start",
   "prompt-submit",
   "notification",
+  "permission-request",
   "pre-tool",
   "post-tool",
   "stop",
@@ -24,6 +25,7 @@ export type NotifyEventType =
   | "session-start"
   | "prompt-submit"
   | "notification"
+  | "permission-request"
   | "pre-tool"
   | "post-tool"
   | "stop"
@@ -40,7 +42,7 @@ export interface NotifyEvent {
   message?: string | undefined;
   source?: string | undefined;
   reason?: string | undefined;
-  /** Tool name, carried only by `pre-tool` events. */
+  /** Tool name, carried only by `pre-tool` and `permission-request` events. */
   toolName?: string | undefined;
 }
 

@@ -25,6 +25,7 @@ EVENT_TYPES = {
     "SessionStart": "session-start",
     "UserPromptSubmit": "prompt-submit",
     "Notification": "notification",
+    "PermissionRequest": "permission-request",
     "PreToolUse": "pre-tool",
     "PostToolUse": "post-tool",
     "Stop": "stop",
@@ -32,9 +33,10 @@ EVENT_TYPES = {
     "SessionEnd": "session-end",
 }
 
-# Tools whose PreToolUse hook proves the session is parked waiting on the user.
-# The tool name is the only extra field carried, and only for these events.
-TOOL_NAME_TYPES = {"pre-tool"}
+# Events whose hook proves the session is parked waiting on the user. The tool
+# name is the only extra field carried, and only for these events; tool_input is
+# never read.
+TOOL_NAME_TYPES = {"pre-tool", "permission-request"}
 
 # High-volume, low-value once stale; do not spool when the bridge is down.
 SPOOL_SKIP_TYPES = {"post-tool"}

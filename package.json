@@ -1,6 +1,6 @@
 {
   "name": "claude-code-stream-deck",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "description": "A Stream Deck monitor for local Claude Code sessions: keys light up when a session needs input or approval.",

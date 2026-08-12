@@ -10,7 +10,7 @@ This is an unofficial community project and is not affiliated with or endorsed b
 
 ## How it works
 
-Claude Code [hooks](https://code.claude.com/docs/en/hooks) fire on session events (prompt submitted, notification, tool completion, stop, session end). A tiny Python helper forwards minimized, metadata-only events to the plugin over a loopback-only, token-authenticated bridge. No polling, no cloud, no prompt or response text leaves the hook payload.
+Claude Code [hooks](https://code.claude.com/docs/en/hooks) fire on session events (prompt submitted, notification, permission request, tool completion, stop, session end). A tiny Python helper forwards minimized, metadata-only events to the plugin over a loopback-only, token-authenticated bridge. No polling, no cloud, no prompt or response text leaves the hook payload.
 
 ```text
 Claude Code session ──hook──▶ helper ──127.0.0.1+token──▶ plugin ──▶ key

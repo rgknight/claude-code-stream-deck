@@ -14,6 +14,7 @@ export const HOOK_EVENTS = [
   "SessionStart",
   "UserPromptSubmit",
   "Notification",
+  "PermissionRequest",
   "PreToolUse",
   "PostToolUse",
   "Stop",
@@ -29,7 +30,8 @@ export const QUESTION_TOOL_MATCHER = "AskUserQuestion|ExitPlanMode";
 /**
  * PreToolUse fires for every tool call, so ours is scoped to the handful of
  * tools whose prompts would otherwise be invisible. Every other event is
- * installed matcher-less, which Claude Code reads as "all invocations".
+ * installed matcher-less, which Claude Code reads as "all invocations" —
+ * including `PermissionRequest`, which must cover every tool that can ask.
  */
 const HOOK_MATCHERS: Partial<Record<HookEvent, string>> = { PreToolUse: QUESTION_TOOL_MATCHER };
 const HOOK_TIMEOUT_SECONDS = 10;

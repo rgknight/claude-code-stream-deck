@@ -32,7 +32,7 @@ Session keys use their physical position by default (top-left is slot 0). The nu
 
 1. Select any Claude Code Monitor key and open its Property Inspector.
 2. Press **Install hooks**.
-3. The installer copies the helper into the plugin's data directory and merges hook entries for `SessionStart`, `UserPromptSubmit`, `Notification`, `PreToolUse` (scoped to `AskUserQuestion|ExitPlanMode`), `PostToolUse`, `Stop`, `StopFailure`, and `SessionEnd` into `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). A timestamped backup of the file is written first.
+3. The installer copies the helper into the plugin's data directory and merges hook entries for `SessionStart`, `UserPromptSubmit`, `Notification`, `PermissionRequest`, `PreToolUse` (scoped to `AskUserQuestion|ExitPlanMode`), `PostToolUse`, `Stop`, `StopFailure`, and `SessionEnd` into `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). A timestamped backup of the file is written first.
 4. Press **Check hooks** — it should report `installed`. Running Claude Code sessions pick up settings changes automatically.
 
 The installer never overwrites existing hooks, preserves every unrelated setting, and refuses to modify a settings file it cannot parse. **Remove hooks** reverses the change.

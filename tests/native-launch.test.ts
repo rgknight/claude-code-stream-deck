@@ -9,6 +9,12 @@ describe("native launch validation", () => {
     await expect(openEditor("code", [], "/definitely/not/a/real/dir")).rejects.toThrow();
   });
 
+  it("reports an unresolvable editor command instead of failing silently", async () => {
+    await expect(openEditor("definitely-not-a-real-editor-xyz", [], process.cwd())).rejects.toThrow(
+      /not found on PATH/
+    );
+  });
+
   it("refuses to open a missing directory", async () => {
     await expect(openDirectory("/definitely/not/a/real/dir")).rejects.toThrow();
   });

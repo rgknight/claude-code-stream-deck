@@ -13,7 +13,13 @@ const PASSIVE_NOTIFICATION_TYPES = new Set([
   "agent_completed"
 ]);
 
-const RESUMABLE_PHASES = new Set<SessionPhase>(["needs_approval", "needs_input", "idle"]);
+/**
+ * Phases a tool event can overrule. `done` belongs here because the Stop hook
+ * fires at every turn boundary, and a session that runs a tool afterwards —
+ * the main loop resuming, or a background agent still churning — was never
+ * finished in the first place.
+ */
+const RESUMABLE_PHASES = new Set<SessionPhase>(["needs_approval", "needs_input", "idle", "done"]);
 
 /**
  * Tools that hand control back mid-turn: Claude has stopped and is waiting on
@@ -62,6 +68,8 @@ export function applySessionEvent(
   }
 
   const phaseBefore = session.phase;
+  const backgroundBefore = session.backgroundAt;
+  const stoppedBefore = session.stoppedAt;
   session.cwd = event.cwd;
   session.updatedAt = Math.max(session.updatedAt, observedAt);
 
@@ -69,10 +77,15 @@ export function applySessionEvent(
     case "session-start":
       // "clear" resets the conversation; "compact"/"resume" continue existing
       // work mid-flight and must not knock a working session back to idle.
-      if (added || event.source === "clear" || event.source === "startup") session.phase = "idle";
+      if (added || event.source === "clear" || event.source === "startup") {
+        session.phase = "idle";
+        session.backgroundAt = undefined;
+        session.stoppedAt = undefined;
+      }
       break;
     case "prompt-submit":
       session.phase = "working";
+      session.stoppedAt = undefined;
       clearAttention(session);
       break;
     case "notification":
@@ -113,21 +126,37 @@ export function applySessionEvent(
     case "post-tool":
       // A tool finished, so any pending approval or input request was resolved
       // and the session is provably working again.
+      if (event.background) session.backgroundAt = observedAt;
       if (RESUMABLE_PHASES.has(session.phase)) {
         session.phase = "working";
         clearAttention(session);
       }
       break;
     case "stop":
-      session.phase = "done";
+      // Stop fires at every turn boundary, including the ones where the main
+      // loop hands off to background agents and will be woken by their results.
+      // Those sessions stay working until `gcSessions` sees them fall silent.
+      if (session.backgroundAt !== undefined) {
+        session.phase = "working";
+        session.stoppedAt = observedAt;
+      } else {
+        session.phase = "done";
+      }
       clearAttention(session);
       break;
     case "stop-failure":
       session.phase = "failed";
+      session.stoppedAt = undefined;
       break;
   }
 
-  const persist = added || session.phase !== phaseBefore;
+  // Background bookkeeping is persisted too: a plugin restart that forgot which
+  // sessions had agents in flight would call their next Stop a finish.
+  const persist =
+    added ||
+    session.phase !== phaseBefore ||
+    session.backgroundAt !== backgroundBefore ||
+    session.stoppedAt !== stoppedBefore;
   return { changed: true, persist };
 }
 
@@ -149,6 +178,7 @@ function clearAttention(session: ClaudeSession): void {
 export interface GcOptions {
   staleWorkingMinutes: number;
   sessionTtlHours: number;
+  backgroundSettleSeconds: number;
 }
 
 export function gcSessions(sessions: Record<string, ClaudeSession>, options: GcOptions, now = Date.now()): ApplyResult {
@@ -158,6 +188,22 @@ export function gcSessions(sessions: Record<string, ClaudeSession>, options: GcO
     if (now - session.updatedAt > options.sessionTtlHours * 3_600_000) {
       // No SessionEnd ever arrived (crash, kill); expire the session.
       delete sessions[session.sessionId];
+      changed = true;
+      persist = true;
+      continue;
+    }
+    if (
+      session.stoppedAt !== undefined &&
+      session.phase === "working" &&
+      now - session.updatedAt >= options.backgroundSettleSeconds * 1_000
+    ) {
+      // The main loop stopped and the background agents have gone quiet: no
+      // tool, no permission request, nothing for the whole settle window. That
+      // is as close to "everything finished" as the hooks can prove.
+      session.phase = "done";
+      session.stoppedAt = undefined;
+      session.backgroundAt = undefined;
+      session.stale = undefined;
       changed = true;
       persist = true;
       continue;
@@ -176,6 +222,8 @@ export function acknowledgeSessions(sessions: ClaudeSession[]): boolean {
   for (const session of sessions) {
     if (session.phase === "done" || session.phase === "failed") {
       session.phase = "idle";
+      session.backgroundAt = undefined;
+      session.stoppedAt = undefined;
       clearAttention(session);
       changed = true;
     }

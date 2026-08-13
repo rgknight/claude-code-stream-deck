@@ -133,7 +133,7 @@ describe("session state machine", () => {
   it("expires crashed sessions and flags stalled work in GC", () => {
     const sessions: Record<string, ClaudeSession> = {};
     applySessionEvent(sessions, event({ type: "prompt-submit" }), NOW);
-    const options = { staleWorkingMinutes: 120, sessionTtlHours: 24 };
+    const options = { staleWorkingMinutes: 120, sessionTtlHours: 24, backgroundSettleSeconds: 90 };
 
     const fresh = gcSessions(sessions, options, NOW + 60 * 60_000);
     expect(fresh.changed).toBe(false);
@@ -145,6 +145,72 @@ describe("session state machine", () => {
     const expired = gcSessions(sessions, options, NOW + 25 * 3_600_000);
     expect(expired).toEqual({ changed: true, persist: true });
     expect(Object.keys(sessions)).toHaveLength(0);
+  });
+
+  it("reopens a stopped session as soon as a tool runs again", () => {
+    const sessions: Record<string, ClaudeSession> = {};
+    const id = "11111111-2222-3333-4444-555555555555";
+    applySessionEvent(sessions, event({ type: "prompt-submit" }), NOW);
+    applySessionEvent(sessions, event({ type: "stop" }), NOW);
+    expect(sessions[id]?.phase).toBe("done");
+    // The turn ended, but a tool call proves the session is running again.
+    applySessionEvent(sessions, event({ type: "post-tool" }), NOW + 1_000);
+    expect(sessions[id]?.phase).toBe("working");
+    applySessionEvent(sessions, event({ type: "stop" }), NOW + 2_000);
+    expect(sessions[id]?.phase).toBe("done");
+    applySessionEvent(sessions, event({ type: "pre-tool", toolName: "Bash" }), NOW + 3_000);
+    expect(sessions[id]?.phase).toBe("working");
+  });
+
+  it("holds a session that launched background agents open until it falls silent", () => {
+    const sessions: Record<string, ClaudeSession> = {};
+    const id = "11111111-2222-3333-4444-555555555555";
+    const options = { staleWorkingMinutes: 120, sessionTtlHours: 24, backgroundSettleSeconds: 90 };
+    applySessionEvent(sessions, event({ type: "prompt-submit" }), NOW);
+    applySessionEvent(sessions, event({ type: "post-tool", background: true }), NOW);
+    // The main loop stops at every turn boundary while the agents work on.
+    applySessionEvent(sessions, event({ type: "stop", observedAt: new Date(NOW + 1_000).toISOString() }), NOW + 1_000);
+    expect(sessions[id]?.phase).toBe("working");
+    expect(gcSessions(sessions, options, NOW + 60_000).changed).toBe(false);
+    expect(sessions[id]?.phase).toBe("working");
+
+    // An agent reports a tool call, which pushes the settle window out again.
+    applySessionEvent(
+      sessions,
+      event({ type: "post-tool", observedAt: new Date(NOW + 80_000).toISOString() }),
+      NOW + 80_000
+    );
+    expect(gcSessions(sessions, options, NOW + 120_000).changed).toBe(false);
+    expect(sessions[id]?.phase).toBe("working");
+
+    const settled = gcSessions(sessions, options, NOW + 200_000);
+    expect(settled).toEqual({ changed: true, persist: true });
+    expect(sessions[id]?.phase).toBe("done");
+    expect(sessions[id]?.stoppedAt).toBeUndefined();
+    expect(sessions[id]?.backgroundAt).toBeUndefined();
+  });
+
+  it("settles a background session only from working, never over a pending prompt", () => {
+    const sessions: Record<string, ClaudeSession> = {};
+    const id = "11111111-2222-3333-4444-555555555555";
+    const options = { staleWorkingMinutes: 120, sessionTtlHours: 24, backgroundSettleSeconds: 90 };
+    applySessionEvent(sessions, event({ type: "post-tool", background: true }), NOW);
+    applySessionEvent(sessions, event({ type: "stop" }), NOW);
+    // A background agent can still ask for permission after the turn ended.
+    applySessionEvent(sessions, event({ type: "permission-request", toolName: "Bash" }), NOW + 1_000);
+    expect(sessions[id]?.phase).toBe("needs_approval");
+    expect(gcSessions(sessions, options, NOW + 200_000).changed).toBe(false);
+    expect(sessions[id]?.phase).toBe("needs_approval");
+  });
+
+  it("marks a session done at once when no background agent is in flight", () => {
+    const sessions: Record<string, ClaudeSession> = {};
+    const id = "11111111-2222-3333-4444-555555555555";
+    applySessionEvent(sessions, event({ type: "prompt-submit" }), NOW);
+    applySessionEvent(sessions, event({ type: "post-tool" }), NOW);
+    applySessionEvent(sessions, event({ type: "stop" }), NOW);
+    expect(sessions[id]?.phase).toBe("done");
+    expect(sessions[id]?.stoppedAt).toBeUndefined();
   });
 
   it("acknowledges only finished sessions", () => {

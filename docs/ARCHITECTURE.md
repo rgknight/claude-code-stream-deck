@@ -35,14 +35,16 @@ The bridge validates every request: POST to `/event` only, bearer token, `applic
 | `notification` | `permission_prompt` → `needs_approval`; passive types (e.g. `auth_success`) no change; everything else → `needs_input` |
 | `permission-request` | → `needs_approval` (`permission_prompt`); `AskUserQuestion`/`ExitPlanMode` → `needs_input` instead |
 | `pre-tool` | `AskUserQuestion`/`ExitPlanMode` → `needs_input` (`question_prompt`); any other tool behaves like `post-tool` |
-| `post-tool` | `needs_approval`/`needs_input`/`idle` → `working` (proof the request was resolved) |
-| `stop` | → `done` |
+| `post-tool` | `needs_approval`/`needs_input`/`idle`/`done` → `working` (proof the request was resolved, or that the session is running again); `background` marks a launched background agent |
+| `stop` | → `done`, or stays `working` when background agents are in flight |
 | `stop-failure` | → `failed` |
 | `session-end` | session removed, key freed |
 
 Approval is detected twice on purpose. Claude Code's `permission_prompt` notification is emitted by the terminal UI only; a session launched with `--permission-prompt-tool stdio` — how the VS Code and JetBrains extensions run it — delegates the prompt to the editor and fires no `Notification` hook. `PermissionRequest` fires from the shared permission machinery in both cases, so it is the signal that survives every front end; the notification path is kept because it still covers terminal sessions and `idle_prompt`.
 
-Any event for an unknown session upserts it first, so a plugin restart mid-session recovers. GC marks `working` sessions with no events for `staleWorkingMinutes` as `ACTIVE?` and deletes sessions silent for `sessionTtlHours`.
+`Stop` fires at every turn boundary, not once per unit of work, so it cannot mean "finished" on its own. A session that fans work out to background agents stops repeatedly while they run — and their tool calls report under the parent session ID — so any tool event after a stop reopens the session as `working`. When a `PostToolUse` for `Agent`/`Task` reports an async launch, the session also records `backgroundAt`: from then on `stop` only parks it (`stoppedAt`), and GC settles it to `done` after `backgroundSettleSeconds` of complete silence. The helper reads exactly one flag out of `tool_response` — whether the launch was async — and nothing else.
+
+Any event for an unknown session upserts it first, so a plugin restart mid-session recovers; background bookkeeping is persisted for the same reason. GC marks `working` sessions with no events for `staleWorkingMinutes` as `ACTIVE?` and deletes sessions silent for `sessionTtlHours`.
 
 ## Project grouping
 

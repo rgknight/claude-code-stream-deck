@@ -11,6 +11,7 @@ export interface GlobalSettings {
   holdMilliseconds: number;
   staleWorkingMinutes: number;
   sessionTtlHours: number;
+  backgroundSettleSeconds: number;
   autoSlotCount: number;
   groupWorktrees: boolean;
   notifyBridgeEnabled: boolean;
@@ -41,6 +42,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   holdMilliseconds: 650,
   staleWorkingMinutes: 120,
   sessionTtlHours: 24,
+  backgroundSettleSeconds: 90,
   autoSlotCount: 4,
   groupWorktrees: true,
   notifyBridgeEnabled: true,
@@ -79,6 +81,7 @@ export function normalizeGlobalSettings(input: Partial<GlobalSettings> | undefin
     holdMilliseconds: numberSetting(raw.holdMilliseconds, 650, 300, 3000),
     staleWorkingMinutes: numberSetting(raw.staleWorkingMinutes, 120, 5, 1440),
     sessionTtlHours: numberSetting(raw.sessionTtlHours, 24, 1, 168),
+    backgroundSettleSeconds: numberSetting(raw.backgroundSettleSeconds, 90, 10, 3600),
     autoSlotCount: Math.floor(numberSetting(raw.autoSlotCount, 4, 1, 32)),
     groupWorktrees: booleanSetting(raw.groupWorktrees, true),
     notifyBridgeEnabled: booleanSetting(raw.notifyBridgeEnabled, true),

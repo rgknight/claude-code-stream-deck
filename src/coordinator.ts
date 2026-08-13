@@ -7,7 +7,7 @@ import type { JsonValue } from "@elgato/utils";
 
 import { CacheStore } from "./cache.js";
 import type { BridgeState, CacheFile, HooksStatus, ProjectState } from "./domain.js";
-import { checkHooks, installHooks, uninstallHooks } from "./hooks-installer.js";
+import { checkHooks, installHooks, refreshHelper, uninstallHooks } from "./hooks-installer.js";
 import { DiagnosticLogger } from "./logger.js";
 import { openDirectory, openEditor } from "./native-launch.js";
 import { NotifyBridgeServer, type NotifyBridgeHealth, type NotifyEvent } from "./notify-bridge.js";
@@ -28,7 +28,9 @@ const PLUGIN_ROOT = path.basename(moduleDirectory) === "bin"
   ? path.dirname(moduleDirectory)
   : path.resolve(moduleDirectory, "..", "com.claudecode.monitor.sdPlugin");
 
-const GC_INTERVAL_MS = 60_000;
+// Also drives the background-agent settle, so it ticks well inside the
+// shortest settle window a user can configure.
+const GC_INTERVAL_MS = 10_000;
 
 type ChangeListener = () => void;
 
@@ -115,6 +117,9 @@ export class Coordinator {
       this.#lastError = "Notify bridge is disabled in settings";
     }
     this.#hooks = await checkHooks().catch(() => "unknown" as const);
+    if (this.#hooks !== "missing") {
+      await refreshHelper(PLUGIN_ROOT, this.#directory).catch((error) => this.#recordError("Helper refresh failed", error));
+    }
     this.#gcTimer = setInterval(() => void this.#runGc(), GC_INTERVAL_MS);
     this.#gcTimer.unref?.();
     await this.#rebuildProjects();

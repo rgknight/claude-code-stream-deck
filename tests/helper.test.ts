@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 
@@ -138,6 +139,60 @@ describe("claude hook helper (end-to-end, no bridge running)", () => {
     expect(await runHelper("this is not json")).toBe(0);
     expect(await runHelper({ hook_event_name: "Stop", session_id: "bad id with spaces" })).toBe(0);
     expect(await spooledEvents()).toHaveLength(0);
+  });
+
+  it("flags a background agent launch on post-tool without carrying the response", async () => {
+    // post-tool is never spooled, so this one has to go over the bridge.
+    const received: Array<Record<string, unknown>> = [];
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        received.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+        response.writeHead(204).end();
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    const port = address && typeof address !== "string" ? address.port : 0;
+    await writeFile(
+      path.join(dataDir, "notify-endpoint.json"),
+      JSON.stringify({ version: 1, host: "127.0.0.1", port, token: "t".repeat(43) })
+    );
+    try {
+      await runHelper({
+        hook_event_name: "PostToolUse",
+        session_id: "11111111-2222-3333-4444-555555555555",
+        cwd: "/repo/project",
+        tool_name: "Agent",
+        tool_input: { prompt: "audit the vault" },
+        tool_response: { isAsync: true, status: "async_launched", agentId: "a1", prompt: "audit the vault" }
+      });
+      await runHelper({
+        hook_event_name: "PostToolUse",
+        session_id: "11111111-2222-3333-4444-555555555555",
+        cwd: "/repo/project",
+        tool_name: "Agent",
+        tool_response: { isAsync: false, content: "the vault holds 3 secrets" }
+      });
+      await runHelper({
+        hook_event_name: "PostToolUse",
+        session_id: "11111111-2222-3333-4444-555555555555",
+        cwd: "/repo/project",
+        tool_name: "Bash",
+        tool_response: { stdout: "ok" }
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+    expect(received).toHaveLength(3);
+    expect(received[0]).toMatchObject({ type: "post-tool", background: true });
+    // A foreground agent has finished by the time post-tool fires, and other
+    // tools never carry the flag at all.
+    expect(received[1]).not.toHaveProperty("background");
+    expect(received[2]).not.toHaveProperty("background");
+    // Privacy: only the flag is mined out of the response.
+    expect(JSON.stringify(received)).not.toContain("vault");
   });
 
   it("maps stop and session lifecycle events", async () => {

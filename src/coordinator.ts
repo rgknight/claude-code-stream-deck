@@ -1,4 +1,4 @@
-import { mkdir, realpath } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -142,12 +142,13 @@ export class Coordinator {
     return projectId ? this.#projects.find((project) => project.projectId === projectId) : undefined;
   }
 
-  /** Focus the session's editor window (VS Code focuses the existing window for an open folder). */
+  /**
+   * Focus the project's editor window. Target the project root rather than the primary session's
+   * cwd: VS Code only reuses a window when the path matches the folder that window has open, so a
+   * session started in a subdirectory (repo/inbox/email) would otherwise spawn a second window.
+   */
   async openProject(project: ProjectState): Promise<void> {
-    const primary = project.sessions.find((session) => session.sessionId === project.primarySessionId);
-    let target = project.projectRoot;
-    if (primary) target = await realpath(primary.cwd).catch(() => project.projectRoot);
-    await openEditor(this.#settings.editorCommand, this.#settings.editorArgs, target);
+    await openEditor(this.#settings.editorCommand, this.#settings.editorArgs, project.projectRoot);
   }
 
   /** Hold gesture on a finished key: settle done/failed sessions back to idle. */

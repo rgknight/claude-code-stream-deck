@@ -85,7 +85,7 @@ Session keys follow physical position automatically. Projects claim keys stickil
 | `BRIDGE` | The local notify bridge is not running. |
 | `UPDATED 20M` | The last event from this project arrived 20 minutes ago. |
 
-`DONE` appears after every completed response turn — it means "your move", not "project finished".
+`DONE` appears after every completed response turn — it means "your move", not "project finished". A session that hands work to background agents keeps saying `WORKING` through those turn boundaries, and only settles to `DONE` once its hooks have been silent for the **Background settle** window (default 90 s).
 
 ## Security and privacy
 

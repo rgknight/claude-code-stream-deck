@@ -38,6 +38,11 @@ EVENT_TYPES = {
 # never read.
 TOOL_NAME_TYPES = {"pre-tool", "permission-request"}
 
+# Tools that start a subagent. Their PostToolUse response says whether the
+# subagent was launched into the background, which is the only hook-visible
+# proof that work outlives the turn that started it.
+AGENT_TOOLS = {"Agent", "Task"}
+
 # High-volume, low-value once stale; do not spool when the bridge is down.
 SPOOL_SKIP_TYPES = {"post-tool"}
 
@@ -94,6 +99,14 @@ def minimize(payload):
         tool_name = clean_text(payload.get("tool_name"), 100)
         if tool_name:
             event["toolName"] = tool_name
+    if event_type == "post-tool" and payload.get("tool_name") in AGENT_TOOLS:
+        # One flag out of the response and nothing else: whether the call handed
+        # back a background agent that keeps running after the tool returns.
+        response = payload.get("tool_response")
+        if isinstance(response, dict) and (
+            response.get("isAsync") is True or response.get("status") == "async_launched"
+        ):
+            event["background"] = True
     source = clean_text(payload.get("source"), 100)
     if source:
         event["source"] = source

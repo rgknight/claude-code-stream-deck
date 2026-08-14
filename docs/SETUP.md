@@ -67,6 +67,7 @@ Events carry only session metadata (IDs, cwd, event/notification type); no promp
 | Keys never change | Confirm hooks with `/hooks` inside Claude Code; confirm `python3 --version` works; watch the Health key counter while submitting a prompt. |
 | `WORKING` while Claude is asking you a question | The scoped `PreToolUse` hook is missing or narrowed — keys will already show `SETUP`; press **Install hooks** to repair it. |
 | Key stuck on `WORKING` | A crashed session sends no events; it turns `ACTIVE?` after `staleWorkingMinutes` and expires after `sessionTtlHours`. Press Health to force a GC pass. |
+| Key turns `DONE` while Claude is still working | Fixed in 0.2.4: `Stop` fires at every turn boundary, so a session running background agents used to go green between them. Sessions with agents in flight now hold `WORKING` until they are quiet for **Background settle** seconds. |
 | Tap opens a new window | The session cwd differs from the folder your window has open (e.g. parent folder). Pin the key to the exact project root you open in VS Code. |
 | Updates missed while Stream Deck was closed | Events spool locally and drain on the next plugin start or Health press (`post-tool` events are intentionally not spooled). |
 

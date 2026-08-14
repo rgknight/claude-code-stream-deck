@@ -13,6 +13,10 @@ export interface ClaudeSession {
   notificationType?: string | undefined;
   message?: string | undefined;
   stale?: boolean | undefined;
+  /** When a background agent was last launched; unset once the session settles. */
+  backgroundAt?: number | undefined;
+  /** When the main loop stopped while background agents were still running. */
+  stoppedAt?: number | undefined;
 }
 
 export interface ProjectState {

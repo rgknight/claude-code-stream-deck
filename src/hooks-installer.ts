@@ -231,6 +231,16 @@ async function writeSettingsFile(configPath: string, value: Record<string, unkno
   return backupPath;
 }
 
+/**
+ * Copies the shipped helper over the installed one. Settings.json points at a
+ * stable path, so a plugin update that changes the helper would otherwise keep
+ * running the old script until the user pressed Install hooks again.
+ */
+export async function refreshHelper(pluginRoot: string, dataDirectory: string): Promise<void> {
+  await mkdir(dataDirectory, { recursive: true });
+  await copyFile(path.join(pluginRoot, "helpers", HELPER_FILENAME), path.join(dataDirectory, HELPER_FILENAME));
+}
+
 export async function installHooks(pluginRoot: string, dataDirectory: string): Promise<HooksInstallResult> {
   const launcher = await findPython();
   const helperSource = path.join(pluginRoot, "helpers", HELPER_FILENAME);

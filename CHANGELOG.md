@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## 0.2.4 — 2026-08-13
+
+- Sessions no longer flash **DONE** while background agents are still working. The `Stop` hook fires at *every* turn boundary, and a session that fans work out to background agents stops many times before it is finished — each one turned the key green mid-run.
+- `post-tool` events for `Agent`/`Task` now carry a single `background` flag, read from the tool response's async-launch marker and nothing else. A session with agents in flight stays **WORKING** through `Stop` and settles to **DONE** only after its hooks fall silent for the background settle window (new setting, default 90s).
+- A tool event after `Stop` now reopens a session that was marked done. Tools do not run in a finished session, so a `PreToolUse`/`PostToolUse` after the turn ended — the main loop resuming, or a background agent still churning — proves the work continues.
+- No hook changes: existing installs pick this up without pressing Install hooks.
+
 ## 0.2.3 — 2026-08-12
 
 - Sessions parked on a permission prompt now light up **APPROVAL** instead of sitting on **WORKING** when Claude Code runs inside an editor. The `permission_prompt` notification is emitted only by the terminal UI, so sessions launched with `--permission-prompt-tool stdio` (the VS Code and JetBrains extensions) produced no `Notification` hook at all. A new `PermissionRequest` hook — which fires from the shared permission machinery regardless of front end — supplies the signal; approving resolves it through the existing `PostToolUse` hook.

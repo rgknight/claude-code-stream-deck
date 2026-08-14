@@ -44,6 +44,8 @@ export interface NotifyEvent {
   reason?: string | undefined;
   /** Tool name, carried only by `pre-tool` and `permission-request` events. */
   toolName?: string | undefined;
+  /** `post-tool` only: the call launched a background agent that is still running. */
+  background?: boolean | undefined;
 }
 
 export interface NotifyBridgeHealth {
@@ -83,6 +85,7 @@ export function parseNotifyEvent(value: unknown): NotifyEvent {
   const source = optionalString(raw.source, 100);
   const reason = optionalString(raw.reason, 100);
   const toolName = optionalString(raw.toolName, 100);
+  const background = raw.background === true;
   return {
     version: 2,
     type: type as NotifyEventType,
@@ -94,7 +97,8 @@ export function parseNotifyEvent(value: unknown): NotifyEvent {
     ...(message ? { message } : {}),
     ...(source ? { source } : {}),
     ...(reason ? { reason } : {}),
-    ...(toolName ? { toolName } : {})
+    ...(toolName ? { toolName } : {}),
+    ...(background ? { background } : {})
   };
 }
 

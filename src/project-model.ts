@@ -17,6 +17,20 @@ export interface CanonicalProject {
   identityAnchor: string;
 }
 
+/**
+ * Root of the main worktree behind a shared git dir. `--git-common-dir` points at the
+ * main checkout's `.git`, so its parent is that checkout — confirmed by asking git for
+ * the toplevel there, which also rules out a bare or detached git dir.
+ */
+async function mainWorktreeRoot(commonDir: string): Promise<string | undefined> {
+  if (path.basename(commonDir) !== ".git") return undefined;
+  const candidate = path.dirname(commonDir);
+  const topLevel = await gitOutput(candidate, ["rev-parse", "--show-toplevel"]);
+  if (!topLevel) return undefined;
+  const resolved = await realpath(topLevel).catch(() => undefined);
+  return resolved && identityPath(resolved) === identityPath(candidate) ? resolved : undefined;
+}
+
 function identityPath(value: string): string {
   const normalized = path.normalize(value);
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
@@ -43,14 +57,20 @@ export async function canonicalizeProject(cwd: string, groupWorktrees: boolean):
   const topLevelRaw = await gitOutput(resolvedCwd, ["rev-parse", "--show-toplevel"]);
   const projectRoot = topLevelRaw ? await realpath(topLevelRaw) : resolvedCwd;
   let identityAnchor = projectRoot;
+  // Grouped worktrees share one key, so the key must name and open the main checkout
+  // rather than whichever worktree session happened to be canonicalized first.
+  let groupRoot = projectRoot;
   if (topLevelRaw && groupWorktrees) {
     const commonRaw = await gitOutput(resolvedCwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-    if (commonRaw) identityAnchor = path.resolve(projectRoot, commonRaw);
+    if (commonRaw) {
+      identityAnchor = path.resolve(projectRoot, commonRaw);
+      groupRoot = (await mainWorktreeRoot(identityAnchor)) ?? projectRoot;
+    }
   }
   const identity = identityPath(identityAnchor);
   return {
     projectId: `sha256:${createHash("sha256").update(identity).digest("hex")}`,
-    projectRoot,
+    projectRoot: groupRoot,
     identityAnchor
   };
 }

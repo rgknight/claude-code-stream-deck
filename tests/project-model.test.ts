@@ -1,9 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { ClaudeSession, ProjectState, SessionPhase } from "../src/domain.js";
-import { choosePrimarySession, compareProjects, isUnderway, reconcileSlots } from "../src/project-model.js";
+import {
+  canonicalizeProject,
+  choosePrimarySession,
+  compareProjects,
+  isUnderway,
+  reconcileSlots
+} from "../src/project-model.js";
 import { DEFAULT_GLOBAL_SETTINGS } from "../src/settings.js";
 
+const execFileAsync = promisify(execFile);
 const NOW = Date.parse("2026-08-03T12:00:00.000Z");
 
 function session(id: string, phase: SessionPhase, updatedAt = NOW): ClaudeSession {
@@ -125,5 +138,47 @@ describe("sticky slot reconciliation", () => {
     reconcileSlots(slots, [alpha], 4);
     expect(slots["7"]).toBeUndefined();
     expect(slots["0"]).toBe("alpha");
+  });
+});
+
+describe("worktree canonicalization", () => {
+  let root: string;
+  let main: string;
+  let tree: string;
+
+  beforeAll(async () => {
+    root = await realpath(await mkdtemp(path.join(os.tmpdir(), "claude-streamdeck-worktree-")));
+    main = path.join(root, "tutormoments");
+    tree = path.join(main, ".claude", "worktrees", "thinking-ladder");
+    const git = async (cwd: string, ...args: string[]): Promise<void> => {
+      await execFileAsync("git", ["-C", cwd, ...args]);
+    };
+    await mkdir(main, { recursive: true });
+    await git(main, "init", "-q", "-b", "main");
+    await git(main, "config", "user.email", "test@example.com");
+    await git(main, "config", "user.name", "Test");
+    await writeFile(path.join(main, "README.md"), "hello\n");
+    await git(main, "add", "README.md");
+    await git(main, "commit", "-qm", "init");
+    await git(main, "worktree", "add", "-q", "-b", "thinking-ladder", tree);
+  });
+
+  afterAll(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("names a grouped worktree after the main checkout", async () => {
+    const fromTree = await canonicalizeProject(tree, true);
+    const fromMain = await canonicalizeProject(main, true);
+    expect(fromTree.projectId).toBe(fromMain.projectId);
+    expect(fromTree.projectRoot).toBe(main);
+    expect(path.basename(fromTree.projectRoot)).toBe("tutormoments");
+  });
+
+  it("keeps the worktree as its own project when grouping is off", async () => {
+    const fromTree = await canonicalizeProject(tree, false);
+    const fromMain = await canonicalizeProject(main, false);
+    expect(fromTree.projectId).not.toBe(fromMain.projectId);
+    expect(fromTree.projectRoot).toBe(tree);
   });
 });

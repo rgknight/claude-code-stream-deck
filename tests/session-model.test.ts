@@ -46,8 +46,6 @@ describe("session state machine", () => {
     const id = "11111111-2222-3333-4444-555555555555";
     applySessionEvent(sessions, event({ type: "notification", notificationType: "permission_prompt" }), NOW);
     expect(sessions[id]?.phase).toBe("needs_approval");
-    applySessionEvent(sessions, event({ type: "notification", notificationType: "idle_prompt" }), NOW);
-    expect(sessions[id]?.phase).toBe("needs_input");
     applySessionEvent(sessions, event({ type: "prompt-submit" }), NOW);
     applySessionEvent(sessions, event({ type: "notification", notificationType: "auth_success" }), NOW);
     expect(sessions[id]?.phase).toBe("working");
@@ -99,10 +97,26 @@ describe("session state machine", () => {
     expect(sessions[id]?.notificationType).toBe("question_prompt");
   });
 
+  it("keeps a finished session done when the idle prompt reminder fires", () => {
+    const sessions: Record<string, ClaudeSession> = {};
+    const id = "11111111-2222-3333-4444-555555555555";
+    applySessionEvent(sessions, event({ type: "prompt-submit" }), NOW);
+    applySessionEvent(sessions, event({ type: "stop" }), NOW);
+    // Claude Code sends this after any finished turn sits untouched for a
+    // minute; it is not a question.
+    applySessionEvent(
+      sessions,
+      event({ type: "notification", notificationType: "idle_prompt", message: "Claude is waiting for your input" }),
+      NOW
+    );
+    expect(sessions[id]?.phase).toBe("done");
+    expect(sessions[id]?.notificationType).toBeUndefined();
+  });
+
   it("treats any other pre-tool event as proof of work in flight", () => {
     const sessions: Record<string, ClaudeSession> = {};
     const id = "11111111-2222-3333-4444-555555555555";
-    applySessionEvent(sessions, event({ type: "notification", notificationType: "idle_prompt" }), NOW);
+    applySessionEvent(sessions, event({ type: "notification", notificationType: "elicitation_dialog" }), NOW);
     expect(sessions[id]?.phase).toBe("needs_input");
     applySessionEvent(sessions, event({ type: "pre-tool", toolName: "Bash" }), NOW);
     expect(sessions[id]?.phase).toBe("working");

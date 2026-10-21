@@ -5,9 +5,12 @@ import type { NotifyEvent } from "./notify-bridge.js";
  * Notification types that carry no attention request; they only prove the
  * session is alive. Everything else that arrives as a `notification` event is
  * treated as needing the user (unknown types degrade safely to needs_input).
+ * `idle_prompt` is the reminder Claude Code sends once any finished turn has
+ * sat untouched for a minute; the Stop hook already marked that turn done.
  */
 const PASSIVE_NOTIFICATION_TYPES = new Set([
   "auth_success",
+  "idle_prompt",
   "elicitation_complete",
   "elicitation_response",
   "agent_completed"

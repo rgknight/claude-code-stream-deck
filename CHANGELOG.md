@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+- A finished session no longer turns **INPUT** a minute after it stops. Claude Code sends an `idle_prompt` notification ("Claude is waiting for your input") whenever a completed turn sits untouched for 60 seconds, whether or not Claude asked anything, so every **DONE** key went yellow. `idle_prompt` is now passive; real questions still light **INPUT** through `AskUserQuestion`/`ExitPlanMode` and the other notification types.
+- No hook changes: existing installs pick this up without pressing Install hooks.
+
 ## 0.2.4 — 2026-08-13
 
 - Sessions no longer flash **DONE** while background agents are still working. The `Stop` hook fires at *every* turn boundary, and a session that fans work out to background agents stops many times before it is finished — each one turned the key green mid-run.
